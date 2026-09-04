@@ -1,0 +1,5 @@
+FIND
+    CONTACT(resid 17, resid 42)
+FOLLOWED_BY
+    CONTACT(resid 17, resid 53)
+WITHIN 3ns;

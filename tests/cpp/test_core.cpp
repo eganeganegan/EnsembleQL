@@ -1,0 +1,145 @@
+#include "ensembleql/engine.hpp"
+#include "ensembleql/event.hpp"
+#include "ensembleql/geometry.hpp"
+#include "ensembleql/parser.hpp"
+#include "ensembleql/planner.hpp"
+#include "ensembleql/selection.hpp"
+#include "ensembleql/temporal.hpp"
+#include "ensembleql/topology.hpp"
+#include "ensembleql/trajectory.hpp"
+#include "ensembleql/units.hpp"
+
+#include <cmath>
+#include <functional>
+#include <iostream>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+using namespace ensembleql;
+
+namespace {
+int failures = 0;
+void check(bool condition, const std::string& label) {
+    if (!condition) { std::cerr << "FAIL: " << label << '\n'; ++failures; }
+}
+template <typename Exception = std::exception>
+void check_throws(const std::function<void()>& action, const std::string& label) {
+    try { action(); std::cerr << "FAIL: " << label << " (did not throw)\n"; ++failures; }
+    catch (const Exception&) {}
+}
+bool close(double a, double b) { return std::abs(a - b) < 1e-9; }
+
+Topology simple_topology() {
+    return Topology({
+        {0, "CA", "ARG", 17, 'A', "C"},
+        {1, "CB", "ARG", 17, 'A', "C"},
+        {2, "CA", "ASP", 42, 'A', "C"},
+        {3, "CA", "GLU", 53, 'B', "C"},
+        {4, "O", "HOH", 99, 'W', "O"},
+    });
+}
+
+void test_units() {
+    check(close(parse_distance("10A").nm, 1.0), "angstrom conversion");
+    check(close(parse_distance("2 nm").nm, 2.0), "nm conversion");
+    check(close(parse_duration("5ns").ps, 5000.0), "ns conversion");
+    check(close(parse_duration("10fs").ps, 0.01), "fs conversion");
+    check_throws([&] { (void)parse_distance("2ns"); }, "distance rejects time unit");
+    check_throws([&] { (void)parse_duration("2nm"); }, "time rejects distance unit");
+}
+
+void test_io_and_selections() {
+    const std::string root = ENSEMBLEQL_SOURCE_DIR;
+    auto topology = Topology::from_pdb(root + "/examples/idr_contact_switching/switching.pdb");
+    check(topology.size() == 3, "PDB atom count");
+    check(topology.atoms()[0].residue_index == 17 && topology.atoms()[1].residue_name == "ASP", "PDB fields");
+    XYZReader reader(root + "/examples/idr_contact_switching/switching.xyz", 3);
+    Frame frame;
+    check(reader.next(frame) && frame.coordinates.size() == 3, "XYZ first frame");
+    check(close(frame.coordinates[1][0], 0.3), "XYZ angstrom to nm");
+    check(reader.next(frame) && close(frame.time_ps, 1000.0), "XYZ explicit time");
+
+    const auto model = simple_topology();
+    check(Selection("resid 17").resolve(model).size() == 2, "resid selection");
+    check(Selection("resid 17:42").resolve(model).size() == 3, "resid range");
+    check(Selection("name CA").resolve(model).size() == 3, "name selection");
+    check(Selection("resname ARG").resolve(model).size() == 2, "resname selection");
+    check(Selection("chain B").resolve(model).size() == 1, "chain selection");
+    check(Selection("protein").resolve(model).size() == 4, "protein excludes water");
+    check_throws([&] { (void)Selection("resid foo").resolve(model); }, "bad resid error");
+    check_throws([&] { (void)Selection("resid 999").resolve(model); }, "zero match error");
+}
+
+void test_geometry() {
+    Frame frame{0.0, {{0.0, 0.0, 0.0}, {0.3, 0.4, 0.0}, {1.0, 0.0, 0.0}}, std::nullopt};
+    check(close(distance(frame.coordinates[0], frame.coordinates[1]), 0.5), "distance");
+    check(close(minimum_distance(frame, {0}, {1, 2}), 0.5), "minimum distance");
+    check(contacts(frame, {0}, {1}, 0.5).size() == 1, "contact cutoff inclusive");
+    check(contacts(frame, {0}, {1}, 0.499).empty(), "contact cutoff below boundary");
+    Frame rg_frame{0.0, {{-1.0, 0.0, 0.0}, {1.0, 0.0, 0.0}}, std::nullopt};
+    check(close(radius_of_gyration(rg_frame, {0, 1}), 1.0), "radius of gyration");
+    frame.box_nm = Vec3{2.0, 2.0, 2.0};
+    check_throws([&] { (void)minimum_distance(frame, {0}, {1}); }, "PBC fails explicitly");
+}
+
+void test_events_and_temporal() {
+    EventExtractor extractor("CONTACT");
+    std::vector<Event> events;
+    for (int i = 0; i < 6; ++i) if (auto event = extractor.push(i, i >= 2 && i <= 4)) events.push_back(*event);
+    if (auto event = extractor.finish()) events.push_back(*event);
+    check(events.size() == 1 && close(events[0].start_time, 2.0) && close(events[0].end_time, 4.0), "contiguous interval");
+    check(filter_for(events, 2.0).size() == 1 && filter_for(events, 2.001).empty(), "FOR inclusive boundary");
+
+    const Event a{0, 2, "A", {}, {}}, touching{2, 4, "B", {}, {}}, overlap{1, 3, "B", {}, {}}, late{3.001, 5, "B", {}, {}};
+    check(temporal::before(a, touching), "BEFORE includes touching boundary");
+    check(temporal::after(touching, a), "AFTER includes touching boundary");
+    check(temporal::overlaps(a, touching), "OVERLAPS includes touching boundary");
+    check(temporal::overlaps(a, overlap), "OVERLAPS interval");
+    check(temporal::followed_by({a}, {touching}, 0.0).size() == 1, "FOLLOWED_BY zero gap");
+    check(temporal::followed_by({a}, {late}, 1.0).empty(), "WITHIN rejects over boundary");
+    check(temporal::followed_by({a}, {Event{3, 5, "B", {}, {}}}, 1.0).size() == 1, "WITHIN includes boundary");
+}
+
+void test_parser_planner_engine() {
+    Parser parser;
+    auto simple = parser.parse("FIND CONTACT(resid 17, resid 42);");
+    check(simple.root->kind == ast::Kind::Contact, "parse simple contact");
+    auto duration = parser.parse("FIND CONTACT(resid 17, resid 42) FOR >= 2ns;");
+    check(duration.root->kind == ast::Kind::For, "parse FOR");
+    auto temporal_query = parser.parse("FIND CONTACT(resid 17, resid 42) FOLLOWED_BY CONTACT(resid 17, resid 53) WITHIN 3ns;");
+    check(temporal_query.root->kind == ast::Kind::FollowedBy, "parse FOLLOWED_BY");
+    auto nested = parser.parse("FIND (CONTACT(resid 17, resid 42) FOLLOWED_BY CONTACT(resid 17, resid 53) WITHIN 3ns) BEFORE CONTACT(resid 17, resid 42);");
+    check(nested.root->kind == ast::Kind::Before, "parse nested temporal expression");
+    check_throws<QueryError>([&] { (void)parser.parse("FIND CONTACT(resid 17);"); }, "CONTACT arity error");
+    check_throws<QueryError>([&] { (void)parser.parse("FIND CONTACT(resid 17, resid 42) FOLLOW CONTACT(resid 1, resid 2);"); }, "unknown operator error");
+    check_throws<QueryError>([&] { (void)parser.parse("FIND RG(protein) < 2ns;"); }, "unit dimension error");
+
+    const std::string root = ENSEMBLEQL_SOURCE_DIR;
+    auto trajectory = Trajectory::from_files(root + "/examples/idr_contact_switching/switching.xyz",
+                                             root + "/examples/idr_contact_switching/switching.pdb");
+    const auto plan = Planner().plan(temporal_query, trajectory.topology());
+    check(plan.unique_observables == 2 && plan.required_selections.size() == 3, "planner requirements and deduplication");
+    const auto results = Engine().execute(trajectory, plan);
+    check(results.size() == 1, "switching event found");
+    if (!results.empty()) {
+        check(close(results[0].start_time, 0.0) && close(results[0].end_time, 4000.0), "switching event boundaries");
+        check(results[0].metadata.at("transition_gap_ps") == "0.000000", "switching transition gap");
+    }
+    const auto persistent = Engine().query(trajectory, "FIND CONTACT(resid 17, resid 42) FOR >= 2ns;");
+    check(persistent.size() == 1 && close(persistent[0].duration(), 2000.0), "streaming query with FOR");
+    const auto count_events = Engine().query(trajectory, "FIND CONTACT_COUNT(resid 17, resid 42) >= 1;");
+    check(count_events.size() == 1 && close(count_events[0].end_time, 2000.0), "CONTACT_COUNT comparison execution");
+}
+} // namespace
+
+int main() {
+    test_units();
+    test_io_and_selections();
+    test_geometry();
+    test_events_and_temporal();
+    test_parser_planner_engine();
+    if (failures) { std::cerr << failures << " test(s) failed\n"; return 1; }
+    std::cout << "All EnsembleQL C++ tests passed\n";
+    return 0;
+}
