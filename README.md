@@ -69,6 +69,7 @@ Implemented queries include:
 
 ```text
 FIND CONTACT(resid 17, resid 42);
+FIND CONTACT(resid 17, resid 42, cutoff=0.35nm);
 FIND CONTACT(resid 17, resid 42) FOR >= 5ns;
 FIND DISTANCE(resid 17, resid 42) < 0.8nm;
 FIND RG(protein) < 2.0nm FOR >= 10ns;
@@ -78,7 +79,9 @@ FIND CONTACT(resid 17, resid 42) OVERLAPS CONTACT(resid 17, resid 53);
 
 `FOLLOWED_BY`, `WITHIN`, `BEFORE`, `AFTER`, `OVERLAPS`, `FOR`, `AND`, and `OR` have AST nodes. Parentheses can group temporal expressions. The parser only creates an AST; the planner resolves selections and deduplicates required observables; the engine then evaluates every required predicate in a single streaming traversal and retains events rather than a full boolean time series.
 
-Selections currently support `resid 17`, `resid 17:25`, `name CA`, `resname ARG`, `chain A`, and `protein`. The internal interfaces leave boolean selection parsing as a later extension.
+Selections support `resid 17`, `resid 17:25`, `name CA`, `resname ARG`, `chain A`, `protein`, and `hydrogen`. They compose with case-insensitive `and`, `or`, `not`, and parentheses; `and` binds more tightly than `or`.
+
+`CONTACT` and `CONTACT_COUNT` use a 0.45 nm default cutoff. Override it with a dimensionally checked third argument such as `cutoff=4A` or `cutoff=0.35nm`.
 
 ## CLI
 
@@ -101,7 +104,7 @@ Output formats are `table`, `csv`, and `json`. `EventResults.to_dataframe()` ret
 - `DISTANCE(A,B)` is the minimum Euclidean distance between distinct atoms in A and B.
 - `CONTACT(A,B)` is true when that minimum distance is less than or equal to 0.45 nm. `CONTACT_COUNT` counts atom pairs at or below the same inclusive cutoff.
 - `RG(A)` is the unweighted root-mean-square distance of selected atom coordinates from their geometric centroid. Mass-weighting is not yet implemented.
-- Event endpoints are the timestamps of the first and last true sampled frames; duration is `end - start`. `FOR >=`, contact cutoffs, `WITHIN`, and interval boundary comparisons are inclusive.
+- Event endpoints are the timestamps of the first and last true sampled frames; duration is `end - start`. Single-sample events therefore have zero observed duration. Irregular timestamps are supported, while duplicate or decreasing timestamps are rejected. `FOR >=`, contact cutoffs, `WITHIN`, and interval boundary comparisons are inclusive. See [sampled-time event semantics](docs/temporal-semantics.md).
 - Periodic boundary conditions are unsupported. A frame declaring a box is rejected rather than silently analyzed with non-periodic distances.
 
 ## Architecture
@@ -112,10 +115,10 @@ The straightforward contact kernel is currently O(N×M). Its stable API permits 
 
 ## Current limitations
 
-Only PDB topology metadata and XYZ trajectories are supported. There is no PBC, mass-weighted RG, configurable contact cutoff syntax, full boolean selection grammar, or compressed trajectory reader yet. Event interval semantics use sampled timestamps and therefore do not infer behavior between frames. `AND`/`OR` combine frame predicates; temporal relations operate on extracted intervals.
+Only PDB topology metadata and XYZ trajectories are supported. There is no PBC, mass-weighted RG, compressed trajectory reader, or user-configurable default timestep yet. Event intervals use sampled timestamps and therefore do not infer behavior between frames. `AND`/`OR` combine frame predicates; temporal relations operate on extracted intervals.
 
 ## Development
 
-The native target compiles with `-Wall -Wextra -Wpedantic`. Enable microbenchmarks with `-DENSEMBLEQL_BUILD_BENCHMARKS=ON`. The synthetic benchmarks cover contact detection at increasing atom counts, streaming event extraction, and temporal joins.
+The native target compiles with `-Wall -Wextra -Wpedantic`; CI additionally enables `ENSEMBLEQL_WARNINGS_AS_ERRORS`. Enable microbenchmarks with `-DENSEMBLEQL_BUILD_BENCHMARKS=ON`. The synthetic benchmarks cover contact detection at increasing atom counts, streaming event extraction, and temporal joins.
 
 Contributions should preserve scientific definitions, add boundary-condition tests, and keep file-format backends independent from the engine.

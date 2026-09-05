@@ -9,7 +9,7 @@ description = "A declarative temporal query engine for molecular dynamics trajec
 readme = "README.md"
 requires-python = ">=3.11"
 license = {file = "LICENSE"}
-authors = [{name = "EnsembleQL contributors"}]
+authors = [{name = "Anthony Egan"}]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "License :: OSI Approved :: MIT License",

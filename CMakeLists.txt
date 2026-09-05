@@ -4,6 +4,7 @@ project(EnsembleQL VERSION 0.1.0 LANGUAGES CXX)
 option(ENSEMBLEQL_BUILD_PYTHON "Build the pybind11 extension" ON)
 option(ENSEMBLEQL_BUILD_TESTS "Build C++ tests" ON)
 option(ENSEMBLEQL_BUILD_BENCHMARKS "Build microbenchmarks" OFF)
+option(ENSEMBLEQL_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 
 add_library(ensembleql_core
     cpp/src/units.cpp
@@ -25,8 +26,14 @@ target_include_directories(ensembleql_core PUBLIC
 target_compile_features(ensembleql_core PUBLIC cxx_std_20)
 if(MSVC)
   target_compile_options(ensembleql_core PRIVATE /W4)
+  if(ENSEMBLEQL_WARNINGS_AS_ERRORS)
+    target_compile_options(ensembleql_core PRIVATE /WX)
+  endif()
 else()
   target_compile_options(ensembleql_core PRIVATE -Wall -Wextra -Wpedantic)
+  if(ENSEMBLEQL_WARNINGS_AS_ERRORS)
+    target_compile_options(ensembleql_core PRIVATE -Werror)
+  endif()
 endif()
 
 if(ENSEMBLEQL_BUILD_PYTHON)

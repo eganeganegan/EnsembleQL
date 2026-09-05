@@ -31,6 +31,22 @@ std::vector<std::string> split_args(const std::string& text) {
     return result;
 }
 
+Distance contact_cutoff(const std::vector<std::string>& args, const std::string& observable) {
+    if (args.size() == 2) return {0.45};
+    if (args.size() != 3) throw QueryError(observable + " requires two selections and an optional cutoff");
+    std::string value = trim(args[2]);
+    const auto equals = value.find('=');
+    if (equals != std::string::npos) {
+        if (upper(trim(value.substr(0, equals))) != "CUTOFF") {
+            throw QueryError("Unknown " + observable + " option: " + trim(value.substr(0, equals)));
+        }
+        value = trim(value.substr(equals + 1));
+    }
+    const Distance cutoff = parse_distance(value);
+    if (cutoff.nm < 0.0) throw QueryError("Contact cutoff must be non-negative");
+    return cutoff;
+}
+
 class Cursor {
 public:
     explicit Cursor(std::string text) : text_(std::move(text)) {}
@@ -93,14 +109,14 @@ ast::ExprPtr parse_primary(Cursor& cursor) {
         const std::string name = cursor.identifier();
         const auto args = split_args(cursor.parenthesized_content());
         if (name == "CONTACT") {
-            if (args.size() != 2) throw QueryError("CONTACT requires exactly two selections");
-            result = std::make_shared<ast::ContactExpr>(args[0], args[1]);
+            const auto cutoff = contact_cutoff(args, name);
+            result = std::make_shared<ast::ContactExpr>(args[0], args[1], cutoff);
         } else if (name == "DISTANCE") {
             if (args.size() != 2) throw QueryError("DISTANCE requires exactly two selections");
             result = std::make_shared<ast::DistanceExpr>(args[0], args[1]);
         } else if (name == "CONTACT_COUNT") {
-            if (args.size() != 2) throw QueryError("CONTACT_COUNT requires exactly two selections");
-            result = std::make_shared<ast::ContactCountExpr>(args[0], args[1]);
+            const auto cutoff = contact_cutoff(args, name);
+            result = std::make_shared<ast::ContactCountExpr>(args[0], args[1], cutoff);
         } else if (name == "RG") {
             if (args.size() != 1) throw QueryError("RG requires exactly one selection");
             result = std::make_shared<ast::RgExpr>(args[0]);
@@ -108,6 +124,7 @@ ast::ExprPtr parse_primary(Cursor& cursor) {
             throw QueryError("Unknown observable: " + name);
         }
         if (auto op = cursor.comparison()) {
+            if (name == "CONTACT") throw QueryError("CONTACT is already boolean and cannot be compared");
             const bool dimensionless = name == "CONTACT_COUNT";
             const std::string quantity = cursor.quantity(!dimensionless);
             double threshold{};
@@ -126,19 +143,29 @@ ast::ExprPtr parse_primary(Cursor& cursor) {
     return result;
 }
 
-ast::ExprPtr parse_expr(Cursor& cursor) {
+ast::ExprPtr parse_and(Cursor& cursor) {
     auto left = parse_primary(cursor);
+    while (cursor.consume_word("AND")) left = std::make_shared<ast::AndExpr>(left, parse_primary(cursor));
+    return left;
+}
+
+ast::ExprPtr parse_or(Cursor& cursor) {
+    auto left = parse_and(cursor);
+    while (cursor.consume_word("OR")) left = std::make_shared<ast::OrExpr>(left, parse_and(cursor));
+    return left;
+}
+
+ast::ExprPtr parse_expr(Cursor& cursor) {
+    auto left = parse_or(cursor);
     if (cursor.consume_word("FOLLOWED_BY")) {
-        auto right = parse_primary(cursor);
+        auto right = parse_or(cursor);
         std::optional<Duration> within;
         if (cursor.consume_word("WITHIN")) within = parse_duration(cursor.quantity(true));
         return std::make_shared<ast::FollowedByExpr>(left, right, within);
     }
-    if (cursor.consume_word("OVERLAPS")) return std::make_shared<ast::OverlapsExpr>(left, parse_primary(cursor));
-    if (cursor.consume_word("BEFORE")) return std::make_shared<ast::BeforeExpr>(left, parse_primary(cursor));
-    if (cursor.consume_word("AFTER")) return std::make_shared<ast::AfterExpr>(left, parse_primary(cursor));
-    if (cursor.consume_word("AND")) return std::make_shared<ast::AndExpr>(left, parse_expr(cursor));
-    if (cursor.consume_word("OR")) return std::make_shared<ast::OrExpr>(left, parse_expr(cursor));
+    if (cursor.consume_word("OVERLAPS")) return std::make_shared<ast::OverlapsExpr>(left, parse_or(cursor));
+    if (cursor.consume_word("BEFORE")) return std::make_shared<ast::BeforeExpr>(left, parse_or(cursor));
+    if (cursor.consume_word("AFTER")) return std::make_shared<ast::AfterExpr>(left, parse_or(cursor));
     return left;
 }
 } // namespace

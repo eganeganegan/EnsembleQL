@@ -33,3 +33,17 @@ def test_engine_error_reaches_python():
     trajectory = eql.load(EXAMPLE / "switching.xyz", topology=EXAMPLE / "switching.pdb")
     with pytest.raises(RuntimeError, match="matched zero atoms"):
         trajectory.query("FIND CONTACT(resid 17, resid 999);")
+
+
+def test_boolean_selection_and_custom_cutoff():
+    trajectory = eql.load(EXAMPLE / "switching.xyz", topology=EXAMPLE / "switching.pdb")
+    assert trajectory.topology.select("protein and name CA") == [0, 1, 2]
+    events = trajectory.query("FIND CONTACT(resid 17, resid 42, cutoff=0.35nm);")
+    assert len(events) == 1
+    assert events[0].end == pytest.approx(1000.0)
+
+
+def test_cutoff_rejects_time_dimension():
+    trajectory = eql.load(EXAMPLE / "switching.xyz", topology=EXAMPLE / "switching.pdb")
+    with pytest.raises(eql.QueryError, match="Distance expected, received time unit"):
+        trajectory.query("FIND CONTACT(resid 17, resid 42, cutoff=2ns);")

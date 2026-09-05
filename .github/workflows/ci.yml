@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  native-and-python:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.11", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Configure native core
+        run: cmake -S . -B build -DENSEMBLEQL_BUILD_PYTHON=OFF -DENSEMBLEQL_BUILD_TESTS=ON
+      - name: Build native core
+        run: cmake --build build --parallel
+      - name: Test native core
+        run: ctest --test-dir build --output-on-failure
+      - name: Build editable Python package
+        run: python -m pip install -e '.[test]'
+      - name: Test Python API and CLI
+        run: python -m pytest -q
+
+  warnings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure with warnings as errors
+        run: cmake -S . -B build -DENSEMBLEQL_BUILD_PYTHON=OFF -DENSEMBLEQL_BUILD_TESTS=ON -DENSEMBLEQL_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel

@@ -40,6 +40,20 @@ Topology simple_topology() {
     });
 }
 
+class VectorReader final : public FrameReader {
+public:
+    explicit VectorReader(std::vector<Frame> frames) : frames_(std::move(frames)) {}
+    bool next(Frame& frame) override {
+        if (position_ == frames_.size()) return false;
+        frame = frames_[position_++];
+        return true;
+    }
+    void reset() override { position_ = 0; }
+private:
+    std::vector<Frame> frames_;
+    std::size_t position_{};
+};
+
 void test_units() {
     check(close(parse_distance("10A").nm, 1.0), "angstrom conversion");
     check(close(parse_distance("2 nm").nm, 2.0), "nm conversion");
@@ -67,8 +81,14 @@ void test_io_and_selections() {
     check(Selection("resname ARG").resolve(model).size() == 2, "resname selection");
     check(Selection("chain B").resolve(model).size() == 1, "chain selection");
     check(Selection("protein").resolve(model).size() == 4, "protein excludes water");
+    check(Selection("resid 17 and name CA").resolve(model).size() == 1, "selection AND");
+    check(Selection("resname ARG or resname GLU").resolve(model).size() == 3, "selection OR");
+    check(Selection("protein and not hydrogen").resolve(model).size() == 4, "selection NOT");
+    check(Selection("name CA or name CB and chain B").resolve(model).size() == 3, "selection AND precedence");
+    check(Selection("(name CA or name CB) and chain B").resolve(model).size() == 1, "selection parentheses");
     check_throws([&] { (void)Selection("resid foo").resolve(model); }, "bad resid error");
     check_throws([&] { (void)Selection("resid 999").resolve(model); }, "zero match error");
+    check_throws([&] { (void)Selection("resid 17 and").resolve(model); }, "malformed boolean selection");
 }
 
 void test_geometry() {
@@ -111,9 +131,17 @@ void test_parser_planner_engine() {
     check(temporal_query.root->kind == ast::Kind::FollowedBy, "parse FOLLOWED_BY");
     auto nested = parser.parse("FIND (CONTACT(resid 17, resid 42) FOLLOWED_BY CONTACT(resid 17, resid 53) WITHIN 3ns) BEFORE CONTACT(resid 17, resid 42);");
     check(nested.root->kind == ast::Kind::Before, "parse nested temporal expression");
+    const auto cutoff_query = parser.parse("FIND CONTACT(resid 17, resid 42, cutoff=0.35nm);");
+    check(close(static_cast<const ast::ContactExpr&>(*cutoff_query.root).cutoff.nm, 0.35), "parse contact cutoff");
+    const auto precedence = parser.parse("FIND CONTACT(resid 17, resid 42) OR CONTACT(resid 17, resid 53) AND CONTACT(resid 42, resid 53);");
+    check(precedence.root->kind == ast::Kind::Or &&
+          static_cast<const ast::OrExpr&>(*precedence.root).right->kind == ast::Kind::And,
+          "query AND precedence");
     check_throws<QueryError>([&] { (void)parser.parse("FIND CONTACT(resid 17);"); }, "CONTACT arity error");
     check_throws<QueryError>([&] { (void)parser.parse("FIND CONTACT(resid 17, resid 42) FOLLOW CONTACT(resid 1, resid 2);"); }, "unknown operator error");
     check_throws<QueryError>([&] { (void)parser.parse("FIND RG(protein) < 2ns;"); }, "unit dimension error");
+    check_throws<QueryError>([&] { (void)parser.parse("FIND CONTACT(resid 17, resid 42, cutoff=2ns);"); }, "contact cutoff dimension error");
+    check_throws<QueryError>([&] { (void)parser.parse("FIND CONTACT(resid 17, resid 42) < 1nm;"); }, "boolean contact comparison error");
 
     const std::string root = ENSEMBLEQL_SOURCE_DIR;
     auto trajectory = Trajectory::from_files(root + "/examples/idr_contact_switching/switching.xyz",
@@ -130,6 +158,32 @@ void test_parser_planner_engine() {
     check(persistent.size() == 1 && close(persistent[0].duration(), 2000.0), "streaming query with FOR");
     const auto count_events = Engine().query(trajectory, "FIND CONTACT_COUNT(resid 17, resid 42) >= 1;");
     check(count_events.size() == 1 && close(count_events[0].end_time, 2000.0), "CONTACT_COUNT comparison execution");
+    const auto tighter = Engine().query(trajectory, "FIND CONTACT(resid 17, resid 42, cutoff=0.35nm);");
+    check(tighter.size() == 1 && close(tighter[0].end_time, 1000.0), "configurable inclusive contact cutoff");
+    const auto shared = parser.parse("FIND DISTANCE(resid 17, resid 42) < 1nm AND DISTANCE(resid 42, resid 17) < 2nm;");
+    check(Planner().plan(shared, trajectory.topology()).unique_observables == 1, "planner shares symmetric observable");
+    check_throws<QueryError>([&] { (void)Planner().plan(parser.parse("FIND RG(protein);"), trajectory.topology()); }, "numeric root requires comparison");
+}
+
+void test_sampled_time_semantics() {
+    Topology topology({{0, "CA", "ARG", 1, 'A', "C"}, {1, "CA", "ASP", 2, 'A', "C"}});
+    const auto frame = [](double time, double separation) {
+        return Frame{time, {{0.0, 0.0, 0.0}, {separation, 0.0, 0.0}}, std::nullopt};
+    };
+    auto irregular_reader = std::make_shared<VectorReader>(std::vector<Frame>{frame(0, 0.3), frame(3, 0.3), frame(10, 0.3)});
+    Trajectory irregular(topology, irregular_reader);
+    const auto spanning = Engine().query(irregular, "FIND CONTACT(resid 1, resid 2) FOR >= 10ps;");
+    check(spanning.size() == 1 && close(spanning[0].duration(), 10.0), "irregular timestamps use observed span");
+
+    auto one_reader = std::make_shared<VectorReader>(std::vector<Frame>{frame(0, 1.0), frame(3, 0.3), frame(10, 1.0)});
+    Trajectory one_sample(topology, one_reader);
+    const auto instantaneous = Engine().query(one_sample, "FIND CONTACT(resid 1, resid 2);");
+    check(instantaneous.size() == 1 && close(instantaneous[0].duration(), 0.0), "single-sample event has zero observed duration");
+    check(Engine().query(one_sample, "FIND CONTACT(resid 1, resid 2) FOR >= 0.001ps;").empty(), "FOR rejects single-sample event above zero");
+
+    auto invalid_reader = std::make_shared<VectorReader>(std::vector<Frame>{frame(1, 0.3), frame(1, 0.3)});
+    Trajectory invalid(topology, invalid_reader);
+    check_throws([&] { (void)Engine().query(invalid, "FIND CONTACT(resid 1, resid 2);"); }, "non-monotonic timestamps rejected");
 }
 } // namespace
 
@@ -139,6 +193,7 @@ int main() {
     test_geometry();
     test_events_and_temporal();
     test_parser_planner_engine();
+    test_sampled_time_semantics();
     if (failures) { std::cerr << failures << " test(s) failed\n"; return 1; }
     std::cout << "All EnsembleQL C++ tests passed\n";
     return 0;

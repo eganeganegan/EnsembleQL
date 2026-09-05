@@ -34,7 +34,8 @@ std::vector<Contact> contacts(const Frame& frame, const std::vector<std::size_t>
     for (const auto i : a) for (const auto j : b) {
         if (i == j) continue;
         const double d = distance(frame.coordinates[i], frame.coordinates[j]);
-        if (d <= cutoff_nm) result.push_back({i, j, d}); // cutoff is inclusive
+        const double tolerance = 1e-12 * std::max(1.0, std::abs(cutoff_nm));
+        if (d <= cutoff_nm + tolerance) result.push_back({i, j, d}); // inclusive, robust to unit conversion roundoff
     }
     return result;
 }
