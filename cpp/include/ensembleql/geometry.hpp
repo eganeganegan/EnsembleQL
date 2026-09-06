@@ -14,6 +14,7 @@ struct Contact {
 };
 
 double distance(const Vec3& a, const Vec3& b);
+double minimum_image_distance(const Vec3& a, const Vec3& b, const Vec3& box_nm);
 double minimum_distance(const Frame& frame,
                         const std::vector<std::size_t>& selection_a,
                         const std::vector<std::size_t>& selection_b);

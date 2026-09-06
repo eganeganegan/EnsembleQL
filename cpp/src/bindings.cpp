@@ -53,6 +53,8 @@ PYBIND11_MODULE(_core, module) {
         return static_cast<int>(query.root->kind);
     });
     module.def("distance", [](const Vec3& a, const Vec3& b) { return distance(a, b); });
+    module.def("minimum_image_distance", &minimum_image_distance,
+               py::arg("a"), py::arg("b"), py::arg("box_nm"));
     module.def("explain_query", [](const Topology& topology, const std::string& text) {
         return explanation_dict(Engine().explain(topology, text));
     });

@@ -3,11 +3,11 @@
 ## Near term
 
 - Add PDB-coordinate frames and backend adapters for XTC, TRR, and DCD, evaluating chemfiles without coupling public reader interfaces to it.
-- Add periodic boxes and explicit minimum-image conventions.
+- Add triclinic boxes and topology-aware molecule unwrapping for whole-molecule observables.
 - Add mass-weighted radius of gyration, residue-residue contact modes, and query-plan caching.
 - Optimize contacts behind the existing API with neighbor lists, cell lists/spatial hashing, SIMD, and optional OpenMP/thread-pool execution.
 
-Completed foundation work includes precedence-aware boolean selections, configurable dimensional contact cutoffs, strict sampled-time semantics, per-frame observable sharing, plan explanation output, and Linux/macOS CI.
+Completed foundation work includes precedence-aware boolean selections, configurable dimensional contact cutoffs, strict sampled-time semantics, orthorhombic minimum-image distance/contact geometry, per-frame observable sharing, plan explanation output, and Linux/macOS CI.
 
 ## Molecular observables
 

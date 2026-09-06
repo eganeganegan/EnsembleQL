@@ -1,0 +1,8 @@
+2
+time=0ps box=20,20,20A
+C 1.0 0.0 0.0
+C 19.0 0.0 0.0
+2
+time=1ps Lattice="20 0 0 0 20 0 0 0 20" Properties=species:S:1:pos:R:3
+C 2.0 0.0 0.0
+C 18.0 0.0 0.0

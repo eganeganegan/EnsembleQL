@@ -59,6 +59,8 @@ void test_units() {
     check(close(parse_distance("2 nm").nm, 2.0), "nm conversion");
     check(close(parse_duration("5ns").ps, 5000.0), "ns conversion");
     check(close(parse_duration("10fs").ps, 0.01), "fs conversion");
+    check(close(parse_duration("2NS").ps, 2000.0), "case-insensitive time unit");
+    check(close(parse_distance("2a").nm, 0.2), "case-insensitive angstrom unit");
     check_throws([&] { (void)parse_distance("2ns"); }, "distance rejects time unit");
     check_throws([&] { (void)parse_duration("2nm"); }, "time rejects distance unit");
 }
@@ -99,8 +101,34 @@ void test_geometry() {
     check(contacts(frame, {0}, {1}, 0.499).empty(), "contact cutoff below boundary");
     Frame rg_frame{0.0, {{-1.0, 0.0, 0.0}, {1.0, 0.0, 0.0}}, std::nullopt};
     check(close(radius_of_gyration(rg_frame, {0, 1}), 1.0), "radius of gyration");
+    check(close(minimum_image_distance({0.1, 0.0, 0.0}, {1.9, 0.0, 0.0}, {2.0, 2.0, 2.0}), 0.2),
+          "orthorhombic minimum image distance");
+    frame.coordinates = {{0.1, 0.0, 0.0}, {1.9, 0.0, 0.0}};
     frame.box_nm = Vec3{2.0, 2.0, 2.0};
-    check_throws([&] { (void)minimum_distance(frame, {0}, {1}); }, "PBC fails explicitly");
+    check(close(minimum_distance(frame, {0}, {1}), 0.2), "frame minimum distance uses PBC");
+    check(contacts(frame, {0}, {1}, 0.2).size() == 1, "contact crosses periodic boundary");
+    check_throws([&] { (void)radius_of_gyration(frame, {0, 1}); }, "periodic RG requires unwrapping");
+    check_throws([&] { (void)minimum_image_distance({0, 0, 0}, {1, 0, 0}, {0, 2, 2}); }, "invalid box rejected");
+}
+
+void test_periodic_xyz_and_query() {
+    const std::string root = ENSEMBLEQL_SOURCE_DIR;
+    XYZReader reader(root + "/tests/data/pbc.xyz", 2);
+    Frame frame;
+    check(reader.next(frame) && frame.box_nm.has_value() && close((*frame.box_nm)[0], 2.0),
+          "custom XYZ box metadata");
+    check(close(minimum_distance(frame, {0}, {1}), 0.2), "custom XYZ box drives minimum image");
+    check(reader.next(frame) && frame.box_nm.has_value() && close((*frame.box_nm)[1], 2.0),
+          "extended XYZ Lattice metadata");
+    check(close(minimum_distance(frame, {0}, {1}), 0.4), "extended XYZ lattice drives minimum image");
+
+    auto trajectory = Trajectory::from_files(root + "/tests/data/pbc.xyz", root + "/tests/data/pbc.pdb");
+    const auto events = Engine().query(trajectory, "FIND CONTACT(resid 1, resid 2, cutoff=0.4nm);");
+    check(events.size() == 1 && close(events[0].start_time, 0.0) && close(events[0].end_time, 1.0),
+          "streaming periodic contact query");
+
+    XYZReader triclinic(root + "/tests/data/triclinic.xyz", 2);
+    check_throws([&] { (void)triclinic.next(frame); }, "triclinic XYZ fails explicitly");
 }
 
 void test_events_and_temporal() {
@@ -199,6 +227,7 @@ int main() {
     test_units();
     test_io_and_selections();
     test_geometry();
+    test_periodic_xyz_and_query();
     test_events_and_temporal();
     test_parser_planner_engine();
     test_sampled_time_semantics();

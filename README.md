@@ -111,11 +111,11 @@ The explanation reports resolved selection expressions, canonical deduplicated o
 
 - Coordinates and distances are normalized to nm. XYZ coordinates are interpreted as angstroms; PDB is used for topology metadata only.
 - Times are normalized to ps. Supported distance units are `nm`, `angstrom`, and `A`; supported time units are `fs`, `ps`, `ns`, and `us`. Query thresholds require explicit units except integer-like counts.
-- `DISTANCE(A,B)` is the minimum Euclidean distance between distinct atoms in A and B.
-- `CONTACT(A,B)` is true when that minimum distance is less than or equal to 0.45 nm. `CONTACT_COUNT` counts atom pairs at or below the same inclusive cutoff.
+- `DISTANCE(A,B)` is the minimum distance between distinct atoms in A and B. It uses Euclidean distance without a box and the minimum-image convention for orthorhombic periodic boxes.
+- `CONTACT(A,B)` is true when that minimum distance is less than or equal to 0.45 nm. `CONTACT_COUNT` counts atom pairs at or below the same inclusive cutoff. Both honor orthorhombic periodic boundaries.
 - `RG(A)` is the unweighted root-mean-square distance of selected atom coordinates from their geometric centroid. Mass-weighting is not yet implemented.
 - Event endpoints are the timestamps of the first and last true sampled frames; duration is `end - start`. Single-sample events therefore have zero observed duration. Irregular timestamps are supported, while duplicate or decreasing timestamps are rejected. `FOR >=`, contact cutoffs, `WITHIN`, and interval boundary comparisons are inclusive. See [sampled-time event semantics](docs/temporal-semantics.md).
-- Periodic boundary conditions are unsupported. A frame declaring a box is rejected rather than silently analyzed with non-periodic distances.
+- Orthorhombic periodic boxes use the component-wise minimum-image convention. XYZ comments accept `box=20,20,20A`; extended XYZ accepts a diagonal `Lattice="..."` matrix in angstroms. Triclinic boxes are rejected. Periodic `RG` is also rejected until molecule unwrapping can be performed correctly. See [periodic-boundary conventions](docs/periodic-boundaries.md).
 
 ## Architecture
 
@@ -125,7 +125,7 @@ The straightforward contact kernel is currently O(N×M). Its stable API permits 
 
 ## Current limitations
 
-Only PDB topology metadata and XYZ trajectories are supported. There is no PBC, mass-weighted RG, compressed trajectory reader, or user-configurable default timestep yet. Event intervals use sampled timestamps and therefore do not infer behavior between frames. `AND`/`OR` combine frame predicates; temporal relations operate on extracted intervals.
+Only PDB topology metadata and XYZ trajectories are supported. Periodic geometry is limited to orthorhombic minimum-image distance/contact calculations; there is no triclinic support, molecule unwrapping, mass-weighted RG, compressed trajectory reader, or user-configurable default timestep yet. Event intervals use sampled timestamps and therefore do not infer behavior between frames. `AND`/`OR` combine frame predicates; temporal relations operate on extracted intervals.
 
 ## Development
 

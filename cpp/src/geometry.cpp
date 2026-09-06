@@ -6,10 +6,21 @@
 
 namespace ensembleql {
 namespace {
-void validate(const Frame& frame, const std::vector<std::size_t>& indices) {
-    if (frame.box_nm) throw std::runtime_error("Periodic boundary conditions are not yet supported");
+void validate_indices(const Frame& frame, const std::vector<std::size_t>& indices) {
     if (indices.empty()) throw std::invalid_argument("Geometry selection is empty");
     for (const auto index : indices) if (index >= frame.coordinates.size()) throw std::out_of_range("Atom index exceeds frame coordinates");
+}
+
+void validate_box(const Vec3& box_nm) {
+    for (const double length : box_nm) {
+        if (!std::isfinite(length) || length <= 0.0) {
+            throw std::invalid_argument("Orthorhombic box lengths must be finite and positive");
+        }
+    }
+}
+
+double frame_distance(const Frame& frame, const Vec3& a, const Vec3& b) {
+    return frame.box_nm ? minimum_image_distance(a, b, *frame.box_nm) : distance(a, b);
 }
 } // namespace
 
@@ -18,22 +29,35 @@ double distance(const Vec3& a, const Vec3& b) {
     return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
+double minimum_image_distance(const Vec3& a, const Vec3& b, const Vec3& box_nm) {
+    validate_box(box_nm);
+    double squared = 0.0;
+    for (std::size_t dimension = 0; dimension < 3; ++dimension) {
+        double displacement = a[dimension] - b[dimension];
+        displacement -= box_nm[dimension] * std::round(displacement / box_nm[dimension]);
+        squared += displacement * displacement;
+    }
+    return std::sqrt(squared);
+}
+
 double minimum_distance(const Frame& frame, const std::vector<std::size_t>& a, const std::vector<std::size_t>& b) {
-    validate(frame, a); validate(frame, b);
+    validate_indices(frame, a); validate_indices(frame, b);
+    if (frame.box_nm) validate_box(*frame.box_nm);
     double result = std::numeric_limits<double>::infinity();
-    for (const auto i : a) for (const auto j : b) if (i != j) result = std::min(result, distance(frame.coordinates[i], frame.coordinates[j]));
+    for (const auto i : a) for (const auto j : b) if (i != j) result = std::min(result, frame_distance(frame, frame.coordinates[i], frame.coordinates[j]));
     if (!std::isfinite(result)) throw std::invalid_argument("Selections contain no distinct atom pair");
     return result;
 }
 
 std::vector<Contact> contacts(const Frame& frame, const std::vector<std::size_t>& a,
                               const std::vector<std::size_t>& b, double cutoff_nm) {
-    validate(frame, a); validate(frame, b);
+    validate_indices(frame, a); validate_indices(frame, b);
+    if (frame.box_nm) validate_box(*frame.box_nm);
     if (cutoff_nm < 0.0) throw std::invalid_argument("Contact cutoff must be non-negative");
     std::vector<Contact> result;
     for (const auto i : a) for (const auto j : b) {
         if (i == j) continue;
-        const double d = distance(frame.coordinates[i], frame.coordinates[j]);
+        const double d = frame_distance(frame, frame.coordinates[i], frame.coordinates[j]);
         const double tolerance = 1e-12 * std::max(1.0, std::abs(cutoff_nm));
         if (d <= cutoff_nm + tolerance) result.push_back({i, j, d}); // inclusive, robust to unit conversion roundoff
     }
@@ -41,7 +65,10 @@ std::vector<Contact> contacts(const Frame& frame, const std::vector<std::size_t>
 }
 
 double radius_of_gyration(const Frame& frame, const std::vector<std::size_t>& selection) {
-    validate(frame, selection);
+    validate_indices(frame, selection);
+    if (frame.box_nm) {
+        throw std::runtime_error("RG on periodic frames requires molecule unwrapping, which is not yet supported");
+    }
     Vec3 center{};
     for (const auto i : selection) for (std::size_t d = 0; d < 3; ++d) center[d] += frame.coordinates[i][d];
     for (double& value : center) value /= static_cast<double>(selection.size());
