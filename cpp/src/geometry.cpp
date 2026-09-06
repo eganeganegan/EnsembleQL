@@ -1,19 +1,32 @@
 #include "ensembleql/geometry.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <functional>
 #include <limits>
 #include <optional>
 #include <queue>
 #include <set>
 #include <stdexcept>
 #include <tuple>
+#include <unordered_map>
+#include <utility>
 
 namespace ensembleql {
 namespace {
+constexpr std::size_t spatial_hash_pair_threshold = 4096;
+
 void validate_indices(const Frame& frame, const std::vector<std::size_t>& indices) {
     if (indices.empty()) throw std::invalid_argument("Geometry selection is empty");
-    for (const auto index : indices) if (index >= frame.coordinates.size()) throw std::out_of_range("Atom index exceeds frame coordinates");
+    for (const auto index : indices) {
+        if (index >= frame.coordinates.size()) throw std::out_of_range("Atom index exceeds frame coordinates");
+        for (const double coordinate : frame.coordinates[index]) {
+            if (!std::isfinite(coordinate)) {
+                throw std::invalid_argument("Selected atom coordinates must be finite");
+            }
+        }
+    }
 }
 
 void validate_box(const Vec3& box_nm) {
@@ -70,6 +83,220 @@ std::optional<PeriodicCell> frame_cell(const Frame& frame) {
 
 double frame_distance(const std::optional<PeriodicCell>& cell, const Vec3& a, const Vec3& b) {
     return cell ? minimum_image_distance_cell(a, b, *cell) : distance(a, b);
+}
+
+std::optional<Vec3> axis_aligned_box(const Frame& frame) {
+    if (!frame.cell_nm) {
+        if (frame.box_nm) validate_box(*frame.box_nm);
+        return frame.box_nm;
+    }
+    validate_cell(*frame.cell_nm);
+    constexpr double zero_tolerance = 1e-14;
+    Vec3 box{};
+    for (std::size_t vector = 0; vector < 3; ++vector) {
+        for (std::size_t dimension = 0; dimension < 3; ++dimension) {
+            const double value = frame.cell_nm->vectors_nm[vector][dimension];
+            if (vector == dimension) {
+                if (value <= 0.0) return std::nullopt;
+                box[dimension] = value;
+            } else if (std::abs(value) > zero_tolerance) {
+                return std::nullopt;
+            }
+        }
+    }
+    return box;
+}
+
+using CellKey = std::array<long long, 3>;
+
+struct CellKeyHash {
+    std::size_t operator()(const CellKey& key) const noexcept {
+        std::size_t result = 0;
+        for (const long long value : key) {
+            const std::size_t hash = std::hash<long long>{}(value);
+            result ^= hash + static_cast<std::size_t>(0x9e3779b9U) + (result << 6U) + (result >> 2U);
+        }
+        return result;
+    }
+};
+
+struct SpatialGrid {
+    double cell_width_nm{};
+    std::optional<Vec3> box_nm;
+    std::array<long long, 3> periodic_bins{};
+    std::unordered_map<CellKey, std::vector<std::size_t>, CellKeyHash> cells;
+};
+
+bool pair_count_reaches_threshold(std::size_t a_size, std::size_t b_size) {
+    if (b_size == 0) return false;
+    if (b_size >= spatial_hash_pair_threshold) return a_size != 0;
+    return a_size >= (spatial_hash_pair_threshold + b_size - 1) / b_size;
+}
+
+std::optional<CellKey> nonperiodic_key(const Vec3& coordinate, double width) {
+    CellKey key{};
+    constexpr double key_margin = 4096.0;
+    constexpr double minimum_key = static_cast<double>(std::numeric_limits<long long>::lowest()) + key_margin;
+    constexpr double maximum_key = static_cast<double>(std::numeric_limits<long long>::max()) - key_margin;
+    for (std::size_t dimension = 0; dimension < 3; ++dimension) {
+        const double scaled = std::floor(coordinate[dimension] / width);
+        if (!std::isfinite(scaled) || scaled < minimum_key || scaled > maximum_key) return std::nullopt;
+        key[dimension] = static_cast<long long>(scaled);
+    }
+    return key;
+}
+
+CellKey periodic_key(const Vec3& coordinate, const SpatialGrid& grid) {
+    CellKey key{};
+    for (std::size_t dimension = 0; dimension < 3; ++dimension) {
+        const double length = (*grid.box_nm)[dimension];
+        double wrapped = std::fmod(coordinate[dimension], length);
+        if (wrapped < 0.0) wrapped += length;
+        const double bin_width = length / static_cast<double>(grid.periodic_bins[dimension]);
+        key[dimension] = std::min(grid.periodic_bins[dimension] - 1,
+                                  static_cast<long long>(std::floor(wrapped / bin_width)));
+    }
+    return key;
+}
+
+std::optional<SpatialGrid> make_spatial_grid(const Frame& frame,
+                                             const std::vector<std::size_t>& selection,
+                                             double cell_width_nm) {
+    SpatialGrid grid;
+    grid.cell_width_nm = cell_width_nm;
+    grid.box_nm = axis_aligned_box(frame);
+    if (frame.cell_nm && !grid.box_nm) return std::nullopt;
+
+    if (grid.box_nm) {
+        for (std::size_t dimension = 0; dimension < 3; ++dimension) {
+            const double ratio = std::floor((*grid.box_nm)[dimension] / cell_width_nm);
+            constexpr double maximum_bins =
+                static_cast<double>(std::numeric_limits<long long>::max() / 2);
+            if (!std::isfinite(ratio) || ratio > maximum_bins) {
+                return std::nullopt;
+            }
+            grid.periodic_bins[dimension] = std::max(1LL, static_cast<long long>(ratio));
+        }
+    } else {
+        for (const std::size_t index : selection) {
+            if (!nonperiodic_key(frame.coordinates[index], cell_width_nm)) return std::nullopt;
+        }
+    }
+
+    grid.cells.reserve(selection.size());
+    for (std::size_t position = 0; position < selection.size(); ++position) {
+        const Vec3& coordinate = frame.coordinates[selection[position]];
+        const CellKey key = grid.box_nm ? periodic_key(coordinate, grid)
+                                        : *nonperiodic_key(coordinate, cell_width_nm);
+        grid.cells[key].push_back(position);
+    }
+    return grid;
+}
+
+long long wrapped_bin(long long value, long long count) {
+    value %= count;
+    return value < 0 ? value + count : value;
+}
+
+std::vector<std::size_t> spatial_candidates(const SpatialGrid& grid, const Vec3& coordinate) {
+    const auto center = grid.box_nm ? std::optional<CellKey>{periodic_key(coordinate, grid)}
+                                    : nonperiodic_key(coordinate, grid.cell_width_nm);
+    if (!center) return {};
+
+    std::array<CellKey, 27> neighbor_keys{};
+    std::size_t neighbor_count = 0;
+    for (long long x = -1; x <= 1; ++x) {
+        for (long long y = -1; y <= 1; ++y) {
+            for (long long z = -1; z <= 1; ++z) {
+                CellKey key{(*center)[0] + x, (*center)[1] + y, (*center)[2] + z};
+                if (grid.box_nm) {
+                    for (std::size_t dimension = 0; dimension < 3; ++dimension) {
+                        key[dimension] = wrapped_bin(key[dimension], grid.periodic_bins[dimension]);
+                    }
+                }
+                neighbor_keys[neighbor_count++] = key;
+            }
+        }
+    }
+    std::sort(neighbor_keys.begin(), neighbor_keys.end());
+    const auto unique_end = std::unique(neighbor_keys.begin(), neighbor_keys.end());
+
+    std::vector<std::size_t> candidates;
+    for (auto key = neighbor_keys.begin(); key != unique_end; ++key) {
+        const auto found = grid.cells.find(*key);
+        if (found != grid.cells.end()) {
+            candidates.insert(candidates.end(), found->second.begin(), found->second.end());
+        }
+    }
+    std::sort(candidates.begin(), candidates.end());
+    return candidates;
+}
+
+template <typename Visitor>
+bool visit_contacts_brute_force(const Frame& frame,
+                                const std::vector<std::size_t>& a,
+                                const std::vector<std::size_t>& b,
+                                const std::optional<PeriodicCell>& cell,
+                                double threshold_nm,
+                                Visitor&& visitor) {
+    for (const std::size_t i : a) {
+        for (const std::size_t j : b) {
+            if (i == j) continue;
+            const double separation = frame_distance(cell, frame.coordinates[i], frame.coordinates[j]);
+            if (separation <= threshold_nm && visitor(i, j, separation)) return true;
+        }
+    }
+    return false;
+}
+
+template <typename Visitor>
+bool visit_contacts(const Frame& frame,
+                    const std::vector<std::size_t>& a,
+                    const std::vector<std::size_t>& b,
+                    double cutoff_nm,
+                    Visitor&& visitor) {
+    if (!std::isfinite(cutoff_nm) || cutoff_nm < 0.0) {
+        throw std::invalid_argument("Contact cutoff must be finite and non-negative");
+    }
+    const auto cell = frame_cell(frame);
+    const double tolerance = 1e-12 * std::max(1.0, std::abs(cutoff_nm));
+    const double threshold_nm = cutoff_nm > std::numeric_limits<double>::max() - tolerance
+                                    ? std::numeric_limits<double>::max()
+                                    : cutoff_nm + tolerance;
+    if (threshold_nm <= 0.0 || !pair_count_reaches_threshold(a.size(), b.size())) {
+        return visit_contacts_brute_force(frame, a, b, cell, threshold_nm,
+                                          std::forward<Visitor>(visitor));
+    }
+
+    auto grid = make_spatial_grid(frame, b, threshold_nm);
+    if (!grid) {
+        return visit_contacts_brute_force(frame, a, b, cell, threshold_nm,
+                                          std::forward<Visitor>(visitor));
+    }
+    if (!grid->box_nm) {
+        for (const std::size_t index : a) {
+            if (!nonperiodic_key(frame.coordinates[index], threshold_nm)) {
+                return visit_contacts_brute_force(frame, a, b, cell, threshold_nm,
+                                                  std::forward<Visitor>(visitor));
+            }
+        }
+    }
+    for (const std::size_t i : a) {
+        const auto candidates = spatial_candidates(*grid, frame.coordinates[i]);
+        for (const std::size_t position : candidates) {
+            const std::size_t j = b[position];
+            if (i == j) continue;
+            const double separation = frame_distance(cell, frame.coordinates[i], frame.coordinates[j]);
+            if (separation <= threshold_nm && visitor(i, j, separation)) return true;
+        }
+    }
+    return false;
+}
+
+bool has_distinct_pair(const std::vector<std::size_t>& a, const std::vector<std::size_t>& b) {
+    for (const std::size_t j : b) if (a.front() != j) return true;
+    for (const std::size_t i : a) if (i != a.front()) return true;
+    return false;
 }
 
 std::vector<Vec3> coordinates_for_rg(const Frame& frame, const std::vector<std::size_t>& selection,
@@ -210,16 +437,23 @@ double minimum_distance(const Frame& frame, const std::vector<std::size_t>& a, c
 std::vector<Contact> contacts(const Frame& frame, const std::vector<std::size_t>& a,
                               const std::vector<std::size_t>& b, double cutoff_nm) {
     validate_indices(frame, a); validate_indices(frame, b);
-    const auto cell = frame_cell(frame);
-    if (cutoff_nm < 0.0) throw std::invalid_argument("Contact cutoff must be non-negative");
     std::vector<Contact> result;
-    for (const auto i : a) for (const auto j : b) {
-        if (i == j) continue;
-        const double d = frame_distance(cell, frame.coordinates[i], frame.coordinates[j]);
-        const double tolerance = 1e-12 * std::max(1.0, std::abs(cutoff_nm));
-        if (d <= cutoff_nm + tolerance) result.push_back({i, j, d}); // inclusive, robust to unit conversion roundoff
-    }
+    visit_contacts(frame, a, b, cutoff_nm,
+                   [&result](std::size_t i, std::size_t j, double separation) {
+                       result.push_back({i, j, separation});
+                       return false;
+                   });
     return result;
+}
+
+bool has_contact(const Frame& frame, const std::vector<std::size_t>& a,
+                 const std::vector<std::size_t>& b, double cutoff_nm) {
+    validate_indices(frame, a); validate_indices(frame, b);
+    if (!has_distinct_pair(a, b)) {
+        throw std::invalid_argument("Selections contain no distinct atom pair");
+    }
+    return visit_contacts(frame, a, b, cutoff_nm,
+                          [](std::size_t, std::size_t, double) { return true; });
 }
 
 std::size_t contact_count(const Frame& frame, const std::vector<std::size_t>& a,

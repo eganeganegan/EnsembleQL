@@ -30,4 +30,4 @@ CONTACT_COUNT(protein, resname ATP, mode=residue, cutoff=0.4nm)
 CONTACT_COUNT(protein, resname ATP, cutoff=0.4nm, mode=atom)
 ```
 
-Cutoff comparisons are inclusive and both modes honor orthorhombic and triclinic periodic cells.
+Cutoff comparisons are inclusive and both modes honor orthorhombic and triclinic periodic cells. Spatial hashing accelerates sufficiently large non-periodic and axis-aligned orthorhombic searches without changing pair order or counting semantics; general triclinic cells use the same pairwise reference path as small selections. Boolean `CONTACT` uses the same cutoff convention but stops searching after the first matching atom pair.

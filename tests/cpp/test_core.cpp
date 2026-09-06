@@ -9,9 +9,11 @@
 #include "ensembleql/trajectory.hpp"
 #include "ensembleql/units.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -29,6 +31,49 @@ void check_throws(const std::function<void()>& action, const std::string& label)
     catch (const Exception&) {}
 }
 bool close(double a, double b) { return std::abs(a - b) < 1e-9; }
+
+std::vector<Contact> reference_contacts(const Frame& frame,
+                                        const std::vector<std::size_t>& a,
+                                        const std::vector<std::size_t>& b,
+                                        double cutoff_nm) {
+    const double tolerance = 1e-12 * std::max(1.0, std::abs(cutoff_nm));
+    std::vector<Contact> result;
+    for (const std::size_t i : a) {
+        for (const std::size_t j : b) {
+            if (i == j) continue;
+            double separation = 0.0;
+            if (frame.cell_nm) {
+                separation = minimum_image_distance_cell(frame.coordinates[i], frame.coordinates[j],
+                                                         *frame.cell_nm);
+            } else if (frame.box_nm) {
+                separation = minimum_image_distance(frame.coordinates[i], frame.coordinates[j],
+                                                    *frame.box_nm);
+            } else {
+                separation = distance(frame.coordinates[i], frame.coordinates[j]);
+            }
+            if (separation <= cutoff_nm + tolerance) result.push_back({i, j, separation});
+        }
+    }
+    return result;
+}
+
+void check_same_contacts(const std::vector<Contact>& actual,
+                         const std::vector<Contact>& expected,
+                         const std::string& label) {
+    if (actual.size() != expected.size()) {
+        check(false, label + " count");
+        return;
+    }
+    for (std::size_t i = 0; i < actual.size(); ++i) {
+        if (actual[i].atom_a != expected[i].atom_a ||
+            actual[i].atom_b != expected[i].atom_b ||
+            !close(actual[i].distance_nm, expected[i].distance_nm)) {
+            check(false, label + " pair order and distance");
+            return;
+        }
+    }
+    check(true, label);
+}
 
 Topology simple_topology() {
     return Topology({
@@ -200,6 +245,60 @@ void test_geometry() {
     singular.vectors_nm = {Vec3{1.0, 0.0, 0.0}, Vec3{2.0, 0.0, 0.0}, Vec3{0.0, 0.0, 1.0}};
     check_throws([&] { (void)minimum_image_distance_cell({0, 0, 0}, {1, 0, 0}, singular); },
                  "singular triclinic cell rejected");
+
+    Frame large_frame;
+    for (std::size_t i = 0; i < 180; ++i) {
+        large_frame.coordinates.push_back({
+            std::fmod(static_cast<double>(i * 37), 101.0) * 0.071 - 1.5,
+            std::fmod(static_cast<double>(i * 53), 103.0) * 0.067 - 2.0,
+            std::fmod(static_cast<double>(i * 29), 107.0) * 0.061 - 2.5,
+        });
+    }
+    std::vector<std::size_t> large_a, large_b;
+    for (std::size_t i = 0; i < 100; ++i) large_a.push_back(i);
+    for (std::size_t i = 80; i < 180; ++i) large_b.push_back(i);
+    large_a.push_back(17);
+    large_b.push_back(93);
+    const auto nonperiodic_expected = reference_contacts(large_frame, large_a, large_b, 0.9);
+    check_same_contacts(contacts(large_frame, large_a, large_b, 0.9), nonperiodic_expected,
+                        "spatial hash matches non-periodic brute force");
+    check(has_contact(large_frame, large_a, large_b, 0.9) == !nonperiodic_expected.empty(),
+          "spatial hash boolean contact matches brute force");
+
+    large_frame.box_nm = Vec3{7.0, 7.0, 7.0};
+    large_frame.coordinates[0] = {0.05, 1.0, 1.0};
+    large_frame.coordinates[179] = {6.95, 1.0, 1.0};
+    const auto periodic_expected = reference_contacts(large_frame, large_a, large_b, 0.9);
+    check_same_contacts(contacts(large_frame, large_a, large_b, 0.9), periodic_expected,
+                        "spatial hash matches orthorhombic brute force");
+    check(has_contact(large_frame, {0}, {179}, 0.1),
+          "boolean contact crosses spatial-hash periodic boundary");
+    check(!has_contact(large_frame, {0}, {90}, 0.01), "boolean contact false result");
+
+    PeriodicCell diagonal_cell;
+    diagonal_cell.vectors_nm = {Vec3{7.0, 0.0, 0.0}, Vec3{0.0, 7.0, 0.0},
+                                Vec3{0.0, 0.0, 7.0}};
+    large_frame.cell_nm = diagonal_cell;
+    large_frame.box_nm.reset();
+    const auto matrix_periodic_expected = reference_contacts(large_frame, large_a, large_b, 0.9);
+    check_same_contacts(contacts(large_frame, large_a, large_b, 0.9), matrix_periodic_expected,
+                        "spatial hash accepts an axis-aligned cell matrix");
+
+    PeriodicCell large_triclinic_cell;
+    large_triclinic_cell.vectors_nm = {Vec3{7.0, 0.3, 0.0}, Vec3{0.0, 7.0, 0.2},
+                                       Vec3{0.0, 0.0, 7.0}};
+    large_frame.cell_nm = large_triclinic_cell;
+    const auto triclinic_expected = reference_contacts(large_frame, large_a, large_b, 0.9);
+    check_same_contacts(contacts(large_frame, large_a, large_b, 0.9), triclinic_expected,
+                        "triclinic fallback matches brute force");
+    check_throws([&] { (void)has_contact(large_frame, {0}, {0}, 0.5); },
+                 "boolean contact rejects selections without a distinct pair");
+    check_throws([&] { (void)contacts(large_frame, large_a, large_b,
+                                    std::numeric_limits<double>::infinity()); },
+                 "contact cutoff must be finite");
+    large_frame.coordinates[3][0] = std::numeric_limits<double>::quiet_NaN();
+    check_throws([&] { (void)contacts(large_frame, {3}, {4}, 0.5); },
+                 "contact search rejects non-finite selected coordinates");
 }
 
 void test_periodic_xyz_and_query() {

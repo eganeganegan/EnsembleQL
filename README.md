@@ -148,7 +148,7 @@ Each Python `Trajectory` retains parsed and topology-resolved plans by exact que
 
 Public headers separate trajectory/topology I/O, selections, geometry, observables, event extraction, interval algebra, AST parsing, planning, and execution. `FrameReader` is the backend-neutral streaming interface used by both the built-in XYZ reader and the optional Chemfiles XTC/TRR/DCD adapter. Observable classes are likewise independent of the parser.
 
-The straightforward contact kernel is currently O(N×M). Its stable API permits cell lists, spatial hashing, neighbor lists, SIMD, or OpenMP underneath it. Other intended extension points are parallel frame evaluation, thread pools, and memory-mapped or additional compressed trajectory readers. See [ROADMAP.md](ROADMAP.md).
+Contact enumeration uses spatial hashing for sufficiently large non-periodic and axis-aligned orthorhombic selections, while small selections and general triclinic cells use the reference pairwise kernel. Boolean `CONTACT` evaluation stops at the first matching pair. The stable geometry API leaves room for Verlet neighbor lists, SIMD, or OpenMP underneath it. Other intended extension points are parallel frame evaluation, thread pools, and memory-mapped or additional compressed trajectory readers. See [ROADMAP.md](ROADMAP.md).
 
 ## Current limitations
 
@@ -156,6 +156,6 @@ PDB supplies topology metadata, element-derived standard atomic weights, and exp
 
 ## Development
 
-The native target compiles with `-Wall -Wextra -Wpedantic`; CI additionally enables `ENSEMBLEQL_WARNINGS_AS_ERRORS`. Enable microbenchmarks with `-DENSEMBLEQL_BUILD_BENCHMARKS=ON`. The synthetic benchmarks cover contact detection at increasing atom counts, streaming event extraction, and temporal joins.
+The native target compiles with `-Wall -Wextra -Wpedantic`; CI additionally enables `ENSEMBLEQL_WARNINGS_AS_ERRORS`. Enable microbenchmarks with `-DENSEMBLEQL_BUILD_BENCHMARKS=ON`. The synthetic benchmarks compare optimized and pairwise contact detection at increasing atom counts, report boolean-contact early-exit time, and cover streaming event extraction and temporal joins.
 
 Contributions should preserve scientific definitions, add boundary-condition tests, and keep file-format backends independent from the engine.

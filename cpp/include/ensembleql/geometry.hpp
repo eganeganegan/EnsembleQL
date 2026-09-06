@@ -25,6 +25,10 @@ std::vector<Contact> contacts(const Frame& frame,
                               const std::vector<std::size_t>& selection_a,
                               const std::vector<std::size_t>& selection_b,
                               double cutoff_nm);
+bool has_contact(const Frame& frame,
+                 const std::vector<std::size_t>& selection_a,
+                 const std::vector<std::size_t>& selection_b,
+                 double cutoff_nm);
 std::size_t contact_count(const Frame& frame,
                           const std::vector<std::size_t>& selection_a,
                           const std::vector<std::size_t>& selection_b,
