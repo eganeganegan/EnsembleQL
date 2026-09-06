@@ -1,6 +1,7 @@
 #include "ensembleql/topology.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <fstream>
 #include <map>
@@ -11,6 +12,11 @@
 
 namespace ensembleql {
 namespace {
+std::uint64_t next_topology_identity() {
+    static std::atomic<std::uint64_t> identity{1};
+    return identity.fetch_add(1, std::memory_order_relaxed);
+}
+
 std::string trim(std::string value) {
     const auto first = value.find_first_not_of(" \t\r\n");
     if (first == std::string::npos) return {};
@@ -29,6 +35,8 @@ std::string normalized_element(std::string element) {
     return element;
 }
 } // namespace
+
+Topology::Topology() : cache_identity_(next_topology_identity()) {}
 
 double standard_atomic_mass_da(const std::string& element) {
     const std::string symbol = normalized_element(element);
@@ -64,7 +72,8 @@ double standard_atomic_mass_da(const std::string& element) {
 }
 
 Topology::Topology(std::vector<Atom> atoms, std::vector<Bond> bonds)
-    : atoms_(std::move(atoms)), bonds_(std::move(bonds)) {
+    : atoms_(std::move(atoms)), bonds_(std::move(bonds)),
+      cache_identity_(next_topology_identity()) {
     for (Atom& atom : atoms_) {
         if (atom.mass_da == 0.0) atom.mass_da = standard_atomic_mass_da(atom.element);
     }

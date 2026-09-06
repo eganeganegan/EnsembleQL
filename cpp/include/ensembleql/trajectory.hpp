@@ -72,7 +72,8 @@ class Trajectory {
 public:
     Trajectory(Topology topology, std::shared_ptr<FrameReader> reader);
     static Trajectory from_files(const std::string& trajectory_path,
-                                 const std::string& topology_path);
+                                 const std::string& topology_path,
+                                 double default_timestep_ps = 1.0);
     const Topology& topology() const noexcept { return topology_; }
     FrameReader& reader() noexcept { return *reader_; }
 private:

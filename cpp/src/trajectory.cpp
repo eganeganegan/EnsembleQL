@@ -114,7 +114,12 @@ bool chemfiles_backend_available() noexcept {
 }
 
 XYZReader::XYZReader(std::string path, std::size_t expected_atoms, double default_step_ps)
-    : path_(std::move(path)), expected_atoms_(expected_atoms), default_step_ps_(default_step_ps) { reset(); }
+    : path_(std::move(path)), expected_atoms_(expected_atoms), default_step_ps_(default_step_ps) {
+    if (!std::isfinite(default_step_ps_) || default_step_ps_ <= 0.0) {
+        throw std::invalid_argument("XYZ default timestep must be finite and positive");
+    }
+    reset();
+}
 
 void XYZReader::reset() {
     stream_.close();
@@ -166,7 +171,11 @@ Trajectory::Trajectory(Topology topology, std::shared_ptr<FrameReader> reader)
     if (!reader_) throw std::invalid_argument("Trajectory requires a frame reader");
 }
 
-Trajectory Trajectory::from_files(const std::string& trajectory_path, const std::string& topology_path) {
+Trajectory Trajectory::from_files(const std::string& trajectory_path, const std::string& topology_path,
+                                  double default_timestep_ps) {
+    if (!std::isfinite(default_timestep_ps) || default_timestep_ps <= 0.0) {
+        throw std::invalid_argument("Trajectory default timestep must be finite and positive");
+    }
     Topology topology = Topology::from_pdb(topology_path);
     std::string extension = std::filesystem::path(trajectory_path).extension().string();
     std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char character) {
@@ -174,10 +183,10 @@ Trajectory Trajectory::from_files(const std::string& trajectory_path, const std:
     });
     std::shared_ptr<FrameReader> reader;
     if (extension == ".xyz") {
-        reader = std::make_shared<XYZReader>(trajectory_path, topology.size());
+        reader = std::make_shared<XYZReader>(trajectory_path, topology.size(), default_timestep_ps);
     } else if (extension == ".xtc" || extension == ".trr" || extension == ".dcd") {
 #ifdef ENSEMBLEQL_HAS_CHEMFILES
-        reader = std::make_shared<ChemfilesReader>(trajectory_path, topology.size());
+        reader = std::make_shared<ChemfilesReader>(trajectory_path, topology.size(), default_timestep_ps);
 #else
         throw std::runtime_error("Trajectory format '" + extension +
                                  "' requires the optional chemfiles backend; configure with "

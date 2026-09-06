@@ -41,3 +41,16 @@ def test_cli_explain_text(capsys):
     assert "Streaming: yes" in output
     assert "Plan:" in output
     assert "CONTACT" in output
+
+
+def test_cli_default_timestep(capsys):
+    data = ROOT / "tests" / "data"
+    status = main([
+        "query", "--topology", str(data / "pbc.pdb"),
+        "--trajectory", str(data / "no_time.xyz"),
+        "--default-timestep", "2.5ps",
+        "--query", "FIND CONTACT(resid 1, resid 2, cutoff=0.4nm);",
+        "--format", "json",
+    ])
+    assert status == 0
+    assert json.loads(capsys.readouterr().out)[0]["end_ps"] == pytest.approx(2.5)

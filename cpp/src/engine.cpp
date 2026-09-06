@@ -196,15 +196,29 @@ std::vector<Event> evaluate_events(const ast::ExprPtr& expression,
 } // namespace
 
 std::vector<Event> Engine::query(Trajectory& trajectory, const std::string& query_text) const {
-    const auto ast = Parser().parse(query_text);
-    const auto plan = Planner().plan(ast, trajectory.topology());
-    return execute(trajectory, plan);
+    return execute(trajectory, compile(trajectory.topology(), query_text));
 }
 
 PlanExplanation Engine::explain(const Topology& topology, const std::string& query_text) const {
-    const auto query_ast = Parser().parse(query_text);
-    const Planner planner;
-    return planner.explain(planner.plan(query_ast, topology));
+    return Planner().explain(compile(topology, query_text));
+}
+
+const ExecutionPlan& Engine::compile(const Topology& topology, const std::string& query_text) const {
+    if (cached_topology_identity_ != topology.cache_identity()) {
+        plan_cache_.clear();
+        cached_topology_identity_ = topology.cache_identity();
+    }
+    const auto found = plan_cache_.find(query_text);
+    if (found != plan_cache_.end()) return found->second;
+    auto [iterator, inserted] = plan_cache_.emplace(
+        query_text, Planner().plan(Parser().parse(query_text), topology));
+    (void)inserted;
+    return iterator->second;
+}
+
+void Engine::clear_plan_cache() const noexcept {
+    plan_cache_.clear();
+    cached_topology_identity_ = 0;
 }
 
 std::vector<Event> Engine::execute(Trajectory& trajectory, const ExecutionPlan& plan) const {

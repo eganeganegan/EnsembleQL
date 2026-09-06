@@ -71,11 +71,18 @@ void test_io_and_selections() {
     check(topology.size() == 3, "PDB atom count");
     check(topology.atoms()[0].residue_index == 17 && topology.atoms()[1].residue_name == "ASP", "PDB fields");
     check(close(topology.atoms()[0].mass_da, 12.011), "PDB element mapped to standard atomic mass");
-    XYZReader reader(root + "/examples/idr_contact_switching/switching.xyz", 3);
+    XYZReader reader(root + "/examples/idr_contact_switching/switching.xyz", 3, 7.0);
     Frame frame;
     check(reader.next(frame) && frame.coordinates.size() == 3, "XYZ first frame");
     check(close(frame.coordinates[1][0], 0.3), "XYZ angstrom to nm");
-    check(reader.next(frame) && close(frame.time_ps, 1000.0), "XYZ explicit time");
+    check(reader.next(frame) && close(frame.time_ps, 1000.0),
+          "XYZ explicit time overrides configured fallback");
+    XYZReader fallback_reader(root + "/tests/data/no_time.xyz", 2, 2.5);
+    check(fallback_reader.next(frame) && close(frame.time_ps, 0.0), "fallback timestep starts at zero");
+    check(fallback_reader.next(frame) && close(frame.time_ps, 2.5), "configurable XYZ fallback timestep");
+    check_throws([&] {
+        (void)XYZReader(root + "/tests/data/no_time.xyz", 2, 0.0);
+    }, "non-positive fallback timestep rejected");
     check(Topology::from_pdb(root + "/tests/data/pbc.pdb").bonds().size() == 1,
           "PDB CONECT bonds parsed and deduplicated");
 #ifdef ENSEMBLEQL_HAS_CHEMFILES
@@ -292,6 +299,36 @@ void test_parser_planner_engine() {
     check_throws<QueryError>([&] { (void)Planner().plan(parser.parse("FIND RG(protein);"), trajectory.topology()); }, "numeric root requires comparison");
     check(Engine().explain(trajectory.topology(), "FIND CONTACT(resid 17, resid 42);").frame_predicates.size() == 1,
           "engine explain without trajectory scan");
+
+    Engine cached_engine;
+    const std::string cached_query = "FIND CONTACT(resid 17, resid 42);";
+    check(cached_engine.query(trajectory, cached_query).size() == 1 &&
+              cached_engine.cached_plan_count() == 1,
+          "engine caches compiled query plan");
+    (void)cached_engine.query(trajectory, cached_query);
+    (void)cached_engine.explain(trajectory.topology(), cached_query);
+    check(cached_engine.cached_plan_count() == 1,
+          "query and explain reuse identical compiled plan");
+    (void)cached_engine.query(trajectory, "FIND CONTACT(resid 17, resid 53);");
+    check(cached_engine.cached_plan_count() == 2, "distinct query text gets a distinct plan");
+    Topology second_cache_topology({
+        {0, "CA", "ARG", 17, 'A', "C"}, {1, "CA", "ASP", 42, 'A', "C"},
+    });
+    auto second_cache_reader = std::make_shared<VectorReader>(std::vector<Frame>{
+        Frame{0.0, {{0.0, 0.0, 0.0}, {0.3, 0.0, 0.0}}, std::nullopt}});
+    Trajectory second_cache_trajectory(second_cache_topology, second_cache_reader);
+    (void)cached_engine.query(second_cache_trajectory, cached_query);
+    check(cached_engine.cached_plan_count() == 1,
+          "switching topology invalidates compiled plan cache");
+    cached_engine.clear_plan_cache();
+    check(cached_engine.cached_plan_count() == 0, "compiled plan cache can be cleared");
+
+    auto fallback_trajectory = Trajectory::from_files(
+        root + "/tests/data/no_time.xyz", root + "/tests/data/pbc.pdb", 2.5);
+    const auto fallback_events = Engine().query(
+        fallback_trajectory, "FIND CONTACT(resid 1, resid 2, cutoff=0.4nm);");
+    check(fallback_events.size() == 1 && close(fallback_events[0].end_time, 2.5),
+          "trajectory factory propagates fallback timestep");
 
     Topology observable_topology({
         {0, "C1", "ALA", 1, 'A', "C"}, {1, "O1", "ALA", 1, 'A', "O"},

@@ -23,7 +23,12 @@ def _parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(dest="command", required=True)
     query = subcommands.add_parser("query", help="execute an EnsembleQL query")
     query.add_argument("--topology", required=True, help="PDB topology")
-    query.add_argument("--trajectory", required=True, help="XYZ trajectory")
+    query.add_argument("--trajectory", required=True, help="trajectory file")
+    query.add_argument(
+        "--default-timestep",
+        default="1ps",
+        help="fallback frame spacing when trajectory timestamps are absent (default: 1ps)",
+    )
     _add_query_source(query)
     query.add_argument("--format", choices=("table", "csv", "json"), default="table")
     explain_command = subcommands.add_parser("explain", help="show a query plan without scanning frames")
@@ -61,7 +66,11 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 _print_explanation(plan)
             return 0
-        results = load(args.trajectory, topology=args.topology).query(text)
+        results = load(
+            args.trajectory,
+            topology=args.topology,
+            default_timestep=args.default_timestep,
+        ).query(text)
         records = results.to_records()
         if args.format == "json":
             json.dump(records, sys.stdout, indent=2)

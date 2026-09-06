@@ -4,7 +4,7 @@ EnsembleQL reports what is observed at trajectory samples. It does not interpola
 
 ## Frame times
 
-Frame times are finite values in ps and must be strictly increasing. Irregular spacing is supported. Duplicate or decreasing timestamps are rejected before a result is returned. XYZ comments may include an explicit value such as `time=2.5ns`; without one, the reader assigns a 1 ps step from frame zero.
+Frame times are finite values in ps and must be strictly increasing. Irregular spacing is supported. Duplicate or decreasing timestamps are rejected before a result is returned. XYZ comments may include an explicit value such as `time=2.5ns`; without one, the reader assigns the configured fallback step from frame zero. The fallback defaults to 1 ps and must be finite and positive. Python and CLI callers provide it as an explicit-unit duration such as `2fs` or `0.5ns`. File-provided timestamps take precedence frame by frame.
 
 ## Event intervals
 

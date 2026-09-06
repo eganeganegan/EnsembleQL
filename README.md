@@ -77,6 +77,12 @@ events = traj.query("""
 print(events)
 ```
 
+When a trajectory has no timestamps, provide an explicit fallback spacing. Embedded timestamps always take precedence:
+
+```python
+traj = eql.load("trajectory.xyz", topology="structure.pdb", default_timestep="2fs")
+```
+
 The synthetic trajectory includes an R17-D42 contact, a one-frame boundary where both contacts exist, then an R17-E53 contact. EnsembleQL returns one directed switch from 0 to 4000 ps with a zero-ps transition gap. This preserves timing and direction that two contact probabilities do not.
 
 ## DSL
@@ -110,6 +116,7 @@ ensembleql query \
   --file examples/idr_contact_switching/query.eql
 
 ensembleql query --topology structure.pdb --trajectory trajectory.xyz \
+  --default-timestep 2fs \
   --query "FIND CONTACT(resid 17, resid 42) FOR >= 2ns;" --format json
 ```
 
@@ -125,10 +132,12 @@ ensembleql explain \
 
 The explanation reports resolved selection expressions, canonical deduplicated observables, frame predicates, temporal operations, and the execution-plan tree. Use `--format json` for machine-readable output. Python provides the same information through `traj.explain(query)` or `eql.explain(query, topology="structure.pdb")`.
 
+Each Python `Trajectory` retains parsed and topology-resolved plans by exact query text. Repeated `query()` and `explain()` calls reuse them. Inspect `traj.cached_plan_count` or call `traj.clear_plan_cache()` when managing a long-lived interactive session.
+
 ## Scientific definitions and units
 
 - Coordinates and distances are normalized to nm. XYZ coordinates are interpreted as angstroms; PDB is used for topology metadata only.
-- Times are normalized to ps. Supported distance units are `nm`, `angstrom`, and `A`; supported time units are `fs`, `ps`, `ns`, and `us`. Query thresholds require explicit units except integer-like counts.
+- Times are normalized to ps. Supported distance units are `nm`, `angstrom`, and `A`; supported time units are `fs`, `ps`, `ns`, and `us`. Query thresholds and configurable fallback timesteps require explicit units except integer-like counts.
 - `DISTANCE(A,B)` is the minimum distance between distinct atoms in A and B. It uses Euclidean distance without a cell and a nearest-image search for orthorhombic or triclinic periodic cells.
 - `CONTACT(A,B)` is true when that minimum distance is less than or equal to 0.45 nm. `CONTACT_COUNT` counts unique unordered atom pairs, or unique unordered `(chain, resid)` pairs with `mode=residue`, at or below the same inclusive cutoff. Both honor orthorhombic and triclinic periodic boundaries.
 - `RG(A)` is the unweighted root-mean-square distance of selected atom coordinates from their geometric centroid. `mass_weighted=true` uses standard atomic weights derived from PDB element symbols. On periodic frames, both variants reconstruct the selected atoms by traversing PDB `CONECT` bonds before calculating the centroid. See [observable definitions](docs/observables.md).
@@ -139,11 +148,11 @@ The explanation reports resolved selection expressions, canonical deduplicated o
 
 Public headers separate trajectory/topology I/O, selections, geometry, observables, event extraction, interval algebra, AST parsing, planning, and execution. `FrameReader` is the backend-neutral streaming interface used by both the built-in XYZ reader and the optional Chemfiles XTC/TRR/DCD adapter. Observable classes are likewise independent of the parser.
 
-The straightforward contact kernel is currently O(N×M). Its stable API permits cell lists, spatial hashing, neighbor lists, SIMD, or OpenMP underneath it. Other intended extension points are parallel frame evaluation, thread pools, memory-mapped or compressed trajectory readers, and query-plan caching. See [ROADMAP.md](ROADMAP.md).
+The straightforward contact kernel is currently O(N×M). Its stable API permits cell lists, spatial hashing, neighbor lists, SIMD, or OpenMP underneath it. Other intended extension points are parallel frame evaluation, thread pools, and memory-mapped or additional compressed trajectory readers. See [ROADMAP.md](ROADMAP.md).
 
 ## Current limitations
 
-PDB supplies topology metadata, element-derived standard atomic weights, and explicit `CONECT` bonds. XYZ is always supported; XTC, TRR, and DCD are available through the optional chemfiles backend. Chemfiles coordinates and cell vectors are converted from angstroms to nm, while its trajectory `time` property is already interpreted as ps. Periodic `RG` requires connected bond metadata; EnsembleQL does not yet infer standard-residue bonds or expose a user-configurable default timestep. Event intervals use sampled timestamps and therefore do not infer behavior between frames. `AND`/`OR` combine frame predicates; temporal relations operate on extracted intervals.
+PDB supplies topology metadata, element-derived standard atomic weights, and explicit `CONECT` bonds. XYZ is always supported; XTC, TRR, and DCD are available through the optional chemfiles backend. Chemfiles coordinates and cell vectors are converted from angstroms to nm, while its trajectory `time` property is already interpreted as ps. Periodic `RG` requires connected bond metadata, and EnsembleQL does not yet infer standard-residue bonds. Event intervals use sampled timestamps and therefore do not infer behavior between frames. `AND`/`OR` combine frame predicates; temporal relations operate on extracted intervals.
 
 ## Development
 

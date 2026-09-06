@@ -100,3 +100,35 @@ def test_periodic_rg_uses_topology_bonds_for_unwrapping():
 
 def test_chemfiles_capability_is_discoverable():
     assert isinstance(eql.chemfiles_backend_available(), bool)
+
+
+def test_compiled_plan_cache_is_trajectory_scoped():
+    trajectory = eql.load(EXAMPLE / "switching.xyz", topology=EXAMPLE / "switching.pdb")
+    query = "FIND CONTACT(resid 17, resid 42);"
+    assert trajectory.cached_plan_count == 0
+    trajectory.query(query)
+    trajectory.query(query)
+    trajectory.explain(query)
+    assert trajectory.cached_plan_count == 1
+    trajectory.query("FIND CONTACT(resid 17, resid 53);")
+    assert trajectory.cached_plan_count == 2
+    trajectory.clear_plan_cache()
+    assert trajectory.cached_plan_count == 0
+
+
+def test_configurable_default_timestep():
+    trajectory = eql.load(
+        PBC_DATA / "no_time.xyz",
+        topology=PBC_DATA / "pbc.pdb",
+        default_timestep="2.5ps",
+    )
+    events = trajectory.query("FIND CONTACT(resid 1, resid 2, cutoff=0.4nm);")
+    assert len(events) == 1
+    assert events[0].end == pytest.approx(2.5)
+
+    with pytest.raises((ValueError, RuntimeError), match="positive"):
+        eql.load(
+            PBC_DATA / "no_time.xyz",
+            topology=PBC_DATA / "pbc.pdb",
+            default_timestep="0ps",
+        )

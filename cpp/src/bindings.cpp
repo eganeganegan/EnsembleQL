@@ -8,10 +8,18 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include <utility>
+
 namespace py = pybind11;
 using namespace ensembleql;
 
 namespace {
+struct NativeTrajectorySession {
+    explicit NativeTrajectorySession(Trajectory value) : trajectory(std::move(value)) {}
+    Trajectory trajectory;
+    Engine engine;
+};
+
 py::dict explanation_dict(const PlanExplanation& explanation) {
     py::dict result;
     result["streaming"] = explanation.streaming;
@@ -42,12 +50,24 @@ PYBIND11_MODULE(_core, module) {
         .def_property_readonly("duration", &Event::duration).def_readonly("type", &Event::type)
         .def_readonly("selections", &Event::selections).def_readonly("metadata", &Event::metadata)
         .def("__repr__", [](const Event& event) { return "Event(type='" + event.type + "', start=" + std::to_string(event.start_time) + ", end=" + std::to_string(event.end_time) + ")"; });
-    py::class_<Trajectory>(module, "NativeTrajectory")
-        .def_static("from_files", &Trajectory::from_files)
-        .def_property_readonly("topology", &Trajectory::topology, py::return_value_policy::reference_internal)
-        .def("query", [](Trajectory& trajectory, const std::string& text) { return Engine().query(trajectory, text); })
-        .def("explain", [](const Trajectory& trajectory, const std::string& text) {
-            return explanation_dict(Engine().explain(trajectory.topology(), text));
+    py::class_<NativeTrajectorySession>(module, "NativeTrajectory")
+        .def_static("from_files", [](const std::string& trajectory, const std::string& topology,
+                                     double default_timestep_ps) {
+            return NativeTrajectorySession(Trajectory::from_files(
+                trajectory, topology, default_timestep_ps));
+        }, py::arg("trajectory"), py::arg("topology"), py::arg("default_timestep_ps") = 1.0)
+        .def_property_readonly("topology", [](const NativeTrajectorySession& session) -> const Topology& {
+            return session.trajectory.topology();
+        }, py::return_value_policy::reference_internal)
+        .def_property_readonly("cached_plan_count", [](const NativeTrajectorySession& session) {
+            return session.engine.cached_plan_count();
+        })
+        .def("clear_plan_cache", [](NativeTrajectorySession& session) { session.engine.clear_plan_cache(); })
+        .def("query", [](NativeTrajectorySession& session, const std::string& text) {
+            return session.engine.query(session.trajectory, text);
+        })
+        .def("explain", [](const NativeTrajectorySession& session, const std::string& text) {
+            return explanation_dict(session.engine.explain(session.trajectory.topology(), text));
         });
 
     module.def("parse_query", [](const std::string& text) {
@@ -64,6 +84,7 @@ PYBIND11_MODULE(_core, module) {
                },
                py::arg("a"), py::arg("b"), py::arg("vectors_nm"));
     module.def("chemfiles_backend_available", &chemfiles_backend_available);
+    module.def("parse_duration_ps", [](const std::string& value) { return parse_duration(value).ps; });
     module.def("explain_query", [](const Topology& topology, const std::string& text) {
         return explanation_dict(Engine().explain(topology, text));
     });

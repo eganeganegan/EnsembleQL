@@ -4,11 +4,11 @@ All trajectory decoders implement EnsembleQL's `FrameReader` interface. The quer
 
 ## Built-in XYZ
 
-XYZ support has no external dependency. Coordinates and extended-XYZ lattice values are interpreted as angstroms and normalized to nm. Comment-line times are normalized to ps.
+XYZ support has no external dependency. Coordinates and extended-XYZ lattice values are interpreted as angstroms and normalized to nm. Comment-line times are normalized to ps. Frames without a time value use the configurable fallback timestep.
 
 ## Optional chemfiles
 
-Chemfiles 0.10 or newer adds streaming readers for XTC, TRR, and DCD. Its coordinates and cell lengths are supplied in angstroms and converted to nm. The `time` frame property for these formats is supplied in ps. If a file has no time property, EnsembleQL uses the reader's default 1 ps step.
+Chemfiles 0.10 or newer adds streaming readers for XTC, TRR, and DCD. Its coordinates and cell lengths are supplied in angstroms and converted to nm. The `time` frame property for these formats is supplied in ps. If a frame has no time property, EnsembleQL uses the configured fallback step, which defaults to 1 ps.
 
 The adapter accepts infinite, orthorhombic, and triclinic cells. Chemfiles cell matrices are converted into EnsembleQL's three-vector cell representation without discarding cell angles.
 

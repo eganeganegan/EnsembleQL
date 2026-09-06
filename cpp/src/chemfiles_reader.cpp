@@ -2,6 +2,7 @@
 
 #include <chemfiles.hpp>
 
+#include <cmath>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -22,6 +23,9 @@ struct ChemfilesReader::Impl {
 
 ChemfilesReader::ChemfilesReader(std::string path, std::size_t expected_atoms, double default_step_ps)
     : impl_(std::make_unique<Impl>(std::move(path), expected_atoms, default_step_ps)) {
+    if (!std::isfinite(default_step_ps) || default_step_ps <= 0.0) {
+        throw std::invalid_argument("Chemfiles default timestep must be finite and positive");
+    }
     reset();
 }
 
