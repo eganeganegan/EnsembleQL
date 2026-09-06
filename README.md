@@ -77,7 +77,7 @@ events = traj.query("""
 print(events)
 ```
 
-When a trajectory has no timestamps, provide an explicit fallback spacing. Embedded timestamps always take precedence:
+PDB files can be queried directly: a file without `MODEL` records is one frame, while each `MODEL` block in an ensemble is a frame. When a trajectory has no timestamps, provide an explicit fallback spacing. Embedded timestamps always take precedence:
 
 ```python
 traj = eql.load("trajectory.xyz", topology="structure.pdb", default_timestep="2fs")
@@ -152,7 +152,7 @@ The straightforward contact kernel is currently O(N×M). Its stable API permits 
 
 ## Current limitations
 
-PDB supplies topology metadata, element-derived standard atomic weights, and explicit `CONECT` bonds. XYZ is always supported; XTC, TRR, and DCD are available through the optional chemfiles backend. Chemfiles coordinates and cell vectors are converted from angstroms to nm, while its trajectory `time` property is already interpreted as ps. Periodic `RG` requires connected bond metadata, and EnsembleQL does not yet infer standard-residue bonds. Event intervals use sampled timestamps and therefore do not infer behavior between frames. `AND`/`OR` combine frame predicates; temporal relations operate on extracted intervals.
+PDB supplies topology metadata, element-derived standard atomic weights, and explicit `CONECT` bonds. XYZ and single- or multi-model PDB trajectories are always supported; XTC, TRR, and DCD are available through the optional chemfiles backend. PDB `CRYST1` records preserve orthorhombic or triclinic cells. Chemfiles coordinates and cell vectors are converted from angstroms to nm, while its trajectory `time` property is already interpreted as ps. Periodic `RG` requires connected bond metadata, and EnsembleQL does not yet infer standard-residue bonds. Event intervals use sampled timestamps and therefore do not infer behavior between frames. `AND`/`OR` combine frame predicates; temporal relations operate on extracted intervals.
 
 ## Development
 

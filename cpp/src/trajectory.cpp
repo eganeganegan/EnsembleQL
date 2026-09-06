@@ -184,6 +184,8 @@ Trajectory Trajectory::from_files(const std::string& trajectory_path, const std:
     std::shared_ptr<FrameReader> reader;
     if (extension == ".xyz") {
         reader = std::make_shared<XYZReader>(trajectory_path, topology.size(), default_timestep_ps);
+    } else if (extension == ".pdb" || extension == ".ent") {
+        reader = std::make_shared<PDBReader>(trajectory_path, topology.size(), default_timestep_ps);
     } else if (extension == ".xtc" || extension == ".trr" || extension == ".dcd") {
 #ifdef ENSEMBLEQL_HAS_CHEMFILES
         reader = std::make_shared<ChemfilesReader>(trajectory_path, topology.size(), default_timestep_ps);
@@ -194,7 +196,7 @@ Trajectory Trajectory::from_files(const std::string& trajectory_path, const std:
 #endif
     } else {
         throw std::runtime_error("Unsupported trajectory format '" + extension +
-                                 "'; supported: XYZ, and XTC/TRR/DCD with chemfiles");
+                                 "'; supported: XYZ, PDB/ENT, and XTC/TRR/DCD with chemfiles");
     }
     return Trajectory(std::move(topology), std::move(reader));
 }

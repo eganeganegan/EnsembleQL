@@ -49,6 +49,27 @@ private:
     std::ifstream stream_;
 };
 
+class PDBReader final : public FrameReader {
+public:
+    PDBReader(std::string path, std::size_t expected_atoms, double default_step_ps = 1.0);
+    bool next(Frame& frame) override;
+    void reset() override;
+private:
+    bool finish_frame(Frame& frame, std::vector<Vec3> coordinates,
+                      const std::vector<std::string>& atom_identities);
+
+    std::string path_;
+    std::size_t expected_atoms_;
+    double default_step_ps_;
+    std::size_t frame_index_{};
+    std::ifstream stream_;
+    bool saw_model_records_{};
+    bool finished_single_frame_{};
+    std::vector<std::string> reference_atom_identities_;
+    std::optional<Vec3> box_nm_;
+    std::optional<PeriodicCell> cell_nm_;
+};
+
 #ifdef ENSEMBLEQL_HAS_CHEMFILES
 class ChemfilesReader final : public FrameReader {
 public:

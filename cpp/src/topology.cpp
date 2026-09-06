@@ -103,7 +103,24 @@ Topology Topology::from_pdb(const std::string& path) {
     std::map<int, std::size_t> serial_to_index;
     std::vector<std::array<int, 2>> serial_bonds;
     std::string line;
+    bool saw_model = false;
+    bool first_model_active = false;
+    bool first_model_complete = false;
     while (std::getline(input, line)) {
+        if (line.rfind("MODEL ", 0) == 0) {
+            if (!saw_model) {
+                saw_model = true;
+                first_model_active = true;
+            } else {
+                first_model_active = false;
+            }
+            continue;
+        }
+        if (line.rfind("ENDMDL", 0) == 0) {
+            if (first_model_active) first_model_complete = true;
+            first_model_active = false;
+            continue;
+        }
         if (line.rfind("CONECT", 0) == 0) {
             try {
                 const int source = std::stoi(field(line, 6, 5));
@@ -117,6 +134,7 @@ Topology Topology::from_pdb(const std::string& path) {
             continue;
         }
         if (line.rfind("ATOM  ", 0) != 0 && line.rfind("HETATM", 0) != 0) continue;
+        if ((saw_model && !first_model_active) || first_model_complete) continue;
         try {
             Atom atom;
             atom.index = atoms.size();

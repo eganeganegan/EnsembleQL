@@ -85,6 +85,34 @@ void test_io_and_selections() {
     }, "non-positive fallback timestep rejected");
     check(Topology::from_pdb(root + "/tests/data/pbc.pdb").bonds().size() == 1,
           "PDB CONECT bonds parsed and deduplicated");
+    const auto model_topology = Topology::from_pdb(root + "/tests/data/models.pdb");
+    check(model_topology.size() == 2 && model_topology.bonds().size() == 1,
+          "multi-model PDB topology uses first model only");
+
+    PDBReader pdb_reader(root + "/tests/data/models.pdb", 2, 2.5);
+    check(pdb_reader.next(frame) && frame.coordinates.size() == 2 &&
+              close(frame.coordinates[1][0], 0.4) && close(frame.time_ps, 0.0),
+          "first PDB MODEL frame and angstrom normalization");
+    check(frame.cell_nm.has_value() && !frame.box_nm.has_value() &&
+              close(frame.cell_nm->vectors_nm[1][0], 1.0),
+          "triclinic PDB CRYST1 metadata");
+    check(pdb_reader.next(frame) && close(frame.coordinates[1][0], 0.5) &&
+              close(frame.time_ps, 2.5),
+          "second PDB MODEL uses fallback timestep");
+    check(!pdb_reader.next(frame), "multi-model PDB streaming end");
+    pdb_reader.reset();
+    check(pdb_reader.next(frame) && close(frame.time_ps, 0.0), "PDB reader reset");
+
+    PDBReader single_pdb(root + "/examples/idr_contact_switching/switching.pdb", 3);
+    check(single_pdb.next(frame) && frame.coordinates.size() == 3 &&
+              !single_pdb.next(frame),
+          "PDB without MODEL is one trajectory frame");
+    PDBReader unitary_cell(root + "/tests/data/unitary_cell.pdb", 2);
+    check(unitary_cell.next(frame) && !frame.cell_nm.has_value() && !frame.box_nm.has_value(),
+          "wwPDB unitary CRYST1 placeholder is not treated as periodic");
+    PDBReader malformed_model(root + "/tests/data/malformed_model.pdb", 2);
+    check_throws([&] { (void)malformed_model.next(frame); },
+                 "PDB MODEL without ENDMDL is rejected");
 #ifdef ENSEMBLEQL_HAS_CHEMFILES
     check(chemfiles_backend_available(), "chemfiles availability flag enabled");
 #else
@@ -329,6 +357,13 @@ void test_parser_planner_engine() {
         fallback_trajectory, "FIND CONTACT(resid 1, resid 2, cutoff=0.4nm);");
     check(fallback_events.size() == 1 && close(fallback_events[0].end_time, 2.5),
           "trajectory factory propagates fallback timestep");
+
+    auto pdb_trajectory = Trajectory::from_files(
+        root + "/tests/data/models.pdb", root + "/tests/data/models.pdb", 2.5);
+    const auto pdb_events = Engine().query(
+        pdb_trajectory, "FIND CONTACT(resid 1, resid 2, cutoff=0.4nm);");
+    check(pdb_events.size() == 1 && close(pdb_events[0].end_time, 2.5),
+          "multi-model PDB query integration");
 
     Topology observable_topology({
         {0, "C1", "ALA", 1, 'A', "C"}, {1, "O1", "ALA", 1, 'A', "O"},

@@ -2,10 +2,10 @@
 
 ## Near term
 
-- Add PDB-coordinate frames and broaden optional chemfiles coverage beyond the initial XTC/TRR/DCD adapter.
+- Broaden optional chemfiles coverage beyond the initial XTC/TRR/DCD adapter.
 - Optimize contacts behind the existing API with neighbor lists, cell lists/spatial hashing, SIMD, and optional OpenMP/thread-pool execution.
 
-Completed foundation work includes precedence-aware boolean selections, configurable dimensional contact cutoffs, atom- and residue-level contact counting, mass-weighted radius of gyration, strict sampled-time semantics with configurable fallbacks, orthorhombic and triclinic nearest-image geometry, topology-aware periodic molecule unwrapping, an optional backend-neutral chemfiles adapter for XTC/TRR/DCD, per-frame observable sharing, topology-scoped query-plan caching, plan explanation output, and Linux/macOS CI.
+Completed foundation work includes precedence-aware boolean selections, configurable dimensional contact cutoffs, atom- and residue-level contact counting, mass-weighted radius of gyration, strict sampled-time semantics with configurable fallbacks, orthorhombic and triclinic nearest-image geometry, topology-aware periodic molecule unwrapping, dependency-free XYZ and PDB trajectory readers, an optional backend-neutral chemfiles adapter for XTC/TRR/DCD, per-frame observable sharing, topology-scoped query-plan caching, plan explanation output, and Linux/macOS CI.
 
 ## Molecular observables
 

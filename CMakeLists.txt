@@ -13,6 +13,7 @@ add_library(ensembleql_core
     cpp/src/units.cpp
     cpp/src/topology.cpp
     cpp/src/trajectory.cpp
+    cpp/src/pdb_reader.cpp
     cpp/src/selection.cpp
     cpp/src/geometry.cpp
     cpp/src/observable.cpp

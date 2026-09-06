@@ -132,3 +132,17 @@ def test_configurable_default_timestep():
             topology=PBC_DATA / "pbc.pdb",
             default_timestep="0ps",
         )
+
+
+def test_multimodel_pdb_trajectory():
+    trajectory = eql.load(
+        PBC_DATA / "models.pdb",
+        topology=PBC_DATA / "models.pdb",
+        default_timestep="2.5ps",
+    )
+    assert len(trajectory.topology.atoms) == 2
+    assert trajectory.topology.bonds == [[0, 1]]
+    events = trajectory.query("FIND CONTACT(resid 1, resid 2, cutoff=0.4nm);")
+    assert len(events) == 1
+    assert events[0].start == pytest.approx(0.0)
+    assert events[0].end == pytest.approx(2.5)
