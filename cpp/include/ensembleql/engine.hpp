@@ -14,6 +14,7 @@ class Engine {
 public:
     std::vector<Event> query(Trajectory& trajectory, const std::string& query_text) const;
     std::vector<Event> execute(Trajectory& trajectory, const ExecutionPlan& plan) const;
+    PlanExplanation explain(const Topology& topology, const std::string& query_text) const;
 };
 
 } // namespace ensembleql

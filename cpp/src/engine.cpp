@@ -185,6 +185,12 @@ std::vector<Event> Engine::query(Trajectory& trajectory, const std::string& quer
     return execute(trajectory, plan);
 }
 
+PlanExplanation Engine::explain(const Topology& topology, const std::string& query_text) const {
+    const auto query_ast = Parser().parse(query_text);
+    const Planner planner;
+    return planner.explain(planner.plan(query_ast, topology));
+}
+
 std::vector<Event> Engine::execute(Trajectory& trajectory, const ExecutionPlan& plan) const {
     if (!plan.root || !plan.root->expression) throw std::invalid_argument("Execution plan has no root");
     std::map<std::string, ast::ExprPtr> sources;

@@ -28,6 +28,10 @@ class Trajectory:
         """Parse, plan, and execute *text* in one streaming pass."""
         return EventResults(self._native.query(text))
 
+    def explain(self, text: str) -> dict:
+        """Return the resolved execution plan without reading trajectory frames."""
+        return dict(self._native.explain(text))
+
 
 def load(trajectory: str | Path, *, topology: str | Path) -> Trajectory:
     """Open an XYZ trajectory using atom metadata from a PDB topology."""

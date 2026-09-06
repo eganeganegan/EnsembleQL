@@ -148,6 +148,12 @@ void test_parser_planner_engine() {
                                              root + "/examples/idr_contact_switching/switching.pdb");
     const auto plan = Planner().plan(temporal_query, trajectory.topology());
     check(plan.unique_observables == 2 && plan.required_selections.size() == 3, "planner requirements and deduplication");
+    const auto explanation = Planner().explain(plan);
+    check(explanation.streaming && explanation.observables.size() == 2, "plan explanation streaming and observables");
+    check(explanation.frame_predicates.size() == 2 && explanation.temporal_operations.size() == 1,
+          "plan explanation stages");
+    check(explanation.temporal_operations[0] == "FOLLOWED_BY WITHIN 3000ps", "plan explanation temporal detail");
+    check(explanation.tree.find("FOLLOWED_BY") != std::string::npos, "plan explanation tree");
     const auto results = Engine().execute(trajectory, plan);
     check(results.size() == 1, "switching event found");
     if (!results.empty()) {
@@ -163,6 +169,8 @@ void test_parser_planner_engine() {
     const auto shared = parser.parse("FIND DISTANCE(resid 17, resid 42) < 1nm AND DISTANCE(resid 42, resid 17) < 2nm;");
     check(Planner().plan(shared, trajectory.topology()).unique_observables == 1, "planner shares symmetric observable");
     check_throws<QueryError>([&] { (void)Planner().plan(parser.parse("FIND RG(protein);"), trajectory.topology()); }, "numeric root requires comparison");
+    check(Engine().explain(trajectory.topology(), "FIND CONTACT(resid 17, resid 42);").frame_predicates.size() == 1,
+          "engine explain without trajectory scan");
 }
 
 void test_sampled_time_semantics() {

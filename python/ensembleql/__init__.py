@@ -2,6 +2,7 @@
 
 from .trajectory import Trajectory, load
 from .results import EventResults
+from .query import explain
 
 try:
     from ._core import Atom, Event, QueryError, Topology
@@ -11,5 +12,5 @@ except ImportError:  # A source checkout may not have built the native module ye
     class QueryError(RuntimeError):
         pass
 
-__all__ = ["Atom", "Event", "EventResults", "QueryError", "Topology", "Trajectory", "load"]
+__all__ = ["Atom", "Event", "EventResults", "QueryError", "Topology", "Trajectory", "explain", "load"]
 __version__ = "0.1.0"

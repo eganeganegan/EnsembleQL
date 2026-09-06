@@ -97,6 +97,16 @@ ensembleql query --topology structure.pdb --trajectory trajectory.xyz \
 
 Output formats are `table`, `csv`, and `json`. `EventResults.to_dataframe()` returns a pandas DataFrame when pandas is installed and otherwise returns a list of records.
 
+Inspect a query before reading trajectory frames:
+
+```bash
+ensembleql explain \
+  --topology examples/idr_contact_switching/switching.pdb \
+  --file examples/idr_contact_switching/query.eql
+```
+
+The explanation reports resolved selection expressions, canonical deduplicated observables, frame predicates, temporal operations, and the execution-plan tree. Use `--format json` for machine-readable output. Python provides the same information through `traj.explain(query)` or `eql.explain(query, topology="structure.pdb")`.
+
 ## Scientific definitions and units
 
 - Coordinates and distances are normalized to nm. XYZ coordinates are interpreted as angstroms; PDB is used for topology metadata only.

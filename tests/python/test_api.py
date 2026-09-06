@@ -47,3 +47,15 @@ def test_cutoff_rejects_time_dimension():
     trajectory = eql.load(EXAMPLE / "switching.xyz", topology=EXAMPLE / "switching.pdb")
     with pytest.raises(eql.QueryError, match="Distance expected, received time unit"):
         trajectory.query("FIND CONTACT(resid 17, resid 42, cutoff=2ns);")
+
+
+def test_explain_returns_structured_streaming_plan():
+    plan = eql.explain(QUERY, topology=EXAMPLE / "switching.pdb")
+    assert plan["streaming"] is True
+    assert len(plan["selections"]) == 3
+    assert len(plan["observables"]) == 2
+    assert plan["temporal_operations"] == ["FOLLOWED_BY WITHIN 3000ps"]
+    assert "FOLLOWED_BY" in plan["plan_tree"]
+
+    trajectory = eql.load(EXAMPLE / "switching.xyz", topology=EXAMPLE / "switching.pdb")
+    assert trajectory.explain(QUERY) == plan

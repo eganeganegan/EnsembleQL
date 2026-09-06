@@ -9,6 +9,13 @@ import sys
 from pathlib import Path
 
 from .trajectory import load
+from .query import explain
+
+
+def _add_query_source(command: argparse.ArgumentParser) -> None:
+    source = command.add_mutually_exclusive_group(required=True)
+    source.add_argument("--query", help="query text")
+    source.add_argument("--file", type=Path, help="path to a .eql query")
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -17,17 +24,43 @@ def _parser() -> argparse.ArgumentParser:
     query = subcommands.add_parser("query", help="execute an EnsembleQL query")
     query.add_argument("--topology", required=True, help="PDB topology")
     query.add_argument("--trajectory", required=True, help="XYZ trajectory")
-    source = query.add_mutually_exclusive_group(required=True)
-    source.add_argument("--query", help="query text")
-    source.add_argument("--file", type=Path, help="path to a .eql query")
+    _add_query_source(query)
     query.add_argument("--format", choices=("table", "csv", "json"), default="table")
+    explain_command = subcommands.add_parser("explain", help="show a query plan without scanning frames")
+    explain_command.add_argument("--topology", required=True, help="PDB topology")
+    _add_query_source(explain_command)
+    explain_command.add_argument("--format", choices=("text", "json"), default="text")
     return parser
+
+
+def _query_text(args) -> str:
+    return args.query if args.query is not None else args.file.read_text(encoding="utf-8")
+
+
+def _print_explanation(plan: dict) -> None:
+    print(f"Streaming: {'yes' if plan['streaming'] else 'no'}")
+    for title, key in (("Selections", "selections"), ("Observables", "observables"),
+                       ("Frame predicates", "frame_predicates"), ("Temporal operations", "temporal_operations")):
+        values = plan[key]
+        print(f"{title} ({len(values)}):")
+        for value in values:
+            print(f"  - {value}")
+    print("Plan:")
+    print(plan["plan_tree"], end="")
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        text = args.query if args.query is not None else args.file.read_text(encoding="utf-8")
+        text = _query_text(args)
+        if args.command == "explain":
+            plan = explain(text, topology=args.topology)
+            if args.format == "json":
+                json.dump(plan, sys.stdout, indent=2)
+                print()
+            else:
+                _print_explanation(plan)
+            return 0
         results = load(args.trajectory, topology=args.topology).query(text)
         records = results.to_records()
         if args.format == "json":

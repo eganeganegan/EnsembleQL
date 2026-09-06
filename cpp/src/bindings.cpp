@@ -11,6 +11,19 @@
 namespace py = pybind11;
 using namespace ensembleql;
 
+namespace {
+py::dict explanation_dict(const PlanExplanation& explanation) {
+    py::dict result;
+    result["streaming"] = explanation.streaming;
+    result["selections"] = explanation.selections;
+    result["observables"] = explanation.observables;
+    result["frame_predicates"] = explanation.frame_predicates;
+    result["temporal_operations"] = explanation.temporal_operations;
+    result["plan_tree"] = explanation.tree;
+    return result;
+}
+} // namespace
+
 PYBIND11_MODULE(_core, module) {
     module.doc() = "EnsembleQL C++20 execution engine";
     py::register_exception<QueryError>(module, "QueryError");
@@ -30,11 +43,17 @@ PYBIND11_MODULE(_core, module) {
     py::class_<Trajectory>(module, "NativeTrajectory")
         .def_static("from_files", &Trajectory::from_files)
         .def_property_readonly("topology", &Trajectory::topology, py::return_value_policy::reference_internal)
-        .def("query", [](Trajectory& trajectory, const std::string& text) { return Engine().query(trajectory, text); });
+        .def("query", [](Trajectory& trajectory, const std::string& text) { return Engine().query(trajectory, text); })
+        .def("explain", [](const Trajectory& trajectory, const std::string& text) {
+            return explanation_dict(Engine().explain(trajectory.topology(), text));
+        });
 
     module.def("parse_query", [](const std::string& text) {
         const auto query = Parser().parse(text);
         return static_cast<int>(query.root->kind);
     });
     module.def("distance", [](const Vec3& a, const Vec3& b) { return distance(a, b); });
+    module.def("explain_query", [](const Topology& topology, const std::string& text) {
+        return explanation_dict(Engine().explain(topology, text));
+    });
 }
