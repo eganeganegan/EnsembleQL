@@ -64,6 +64,11 @@ def test_explain_returns_structured_streaming_plan():
 
 def test_periodic_minimum_image_query():
     assert eql.minimum_image_distance([0.1, 0.0, 0.0], [1.9, 0.0, 0.0], [2.0, 2.0, 2.0]) == pytest.approx(0.2)
+    assert eql.minimum_image_distance_cell(
+        [0.1, 0.0, 0.0],
+        [1.9, 0.0, 0.0],
+        [[2.0, 0.1, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 2.0]],
+    ) == pytest.approx(5**0.5 / 10)
     trajectory = eql.load(PBC_DATA / "pbc.xyz", topology=PBC_DATA / "pbc.pdb")
     events = trajectory.query("FIND CONTACT(resid 1, resid 2, cutoff=0.4nm);")
     assert len(events) == 1
@@ -71,10 +76,13 @@ def test_periodic_minimum_image_query():
     assert events[0].end == pytest.approx(1.0)
 
 
-def test_periodic_rg_requires_unwrapping():
+def test_periodic_rg_uses_topology_bonds_for_unwrapping():
     trajectory = eql.load(PBC_DATA / "pbc.xyz", topology=PBC_DATA / "pbc.pdb")
-    with pytest.raises(RuntimeError, match="requires molecule unwrapping"):
-        trajectory.query("FIND RG(protein) < 1nm;")
+    assert trajectory.topology.bonds == [[0, 1]]
+    events = trajectory.query("FIND RG(protein) < 0.11nm;")
+    assert len(events) == 1
+    assert events[0].start == pytest.approx(0.0)
+    assert events[0].end == pytest.approx(0.0)
 
 
 def test_chemfiles_capability_is_discoverable():

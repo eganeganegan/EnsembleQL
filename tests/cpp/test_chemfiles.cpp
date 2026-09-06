@@ -24,10 +24,12 @@ bool close(double first, double second) {
     return std::abs(first - second) < 1e-5;
 }
 
-void write_trajectory(const std::string& path) {
+void write_trajectory(const std::string& path, bool triclinic = false) {
     chemfiles::Trajectory output(path, 'w');
     for (std::size_t index = 0; index < 2; ++index) {
-        chemfiles::Frame frame(chemfiles::UnitCell({20, 20, 20}));
+        const auto cell = triclinic ? chemfiles::UnitCell({20, 20, 20}, {90, 90, 60})
+                                    : chemfiles::UnitCell({20, 20, 20});
+        chemfiles::Frame frame(cell);
         const double left = index == 0 ? 1.0 : 2.0;
         const double right = index == 0 ? 19.0 : 18.0;
         frame.add_atom(chemfiles::Atom("C"), {left, 0.0, 0.0});
@@ -50,6 +52,8 @@ void test_format(const std::string& extension) {
               (frame.coordinates.empty() ? std::string("no coordinates") : std::to_string(frame.coordinates[0][0])) + ")");
     check(frame.box_nm.has_value() && close((*frame.box_nm)[0], 2.0),
           extension + " orthorhombic cell normalization");
+    check(frame.cell_nm.has_value() && close(frame.cell_nm->vectors_nm[0][0], 2.0),
+          extension + " full cell metadata");
     check(close(frame.time_ps, 0.0), extension + " time property");
     check(reader.next(frame) && close(frame.time_ps, 1.0), extension + " second frame time");
     check(!reader.next(frame), extension + " streaming end");
@@ -60,6 +64,19 @@ void test_format(const std::string& extension) {
     check(events.size() == 1 && close(events[0].end_time, 1.0), extension + " query integration");
     std::filesystem::remove(path);
 }
+
+void test_triclinic_format() {
+    const std::string path = std::string(ENSEMBLEQL_BINARY_DIR) + "/ensembleql_reader_triclinic.trr";
+    std::filesystem::remove(path);
+    write_trajectory(path, true);
+    ChemfilesReader reader(path, 2);
+    Frame frame;
+    check(reader.next(frame) && frame.cell_nm.has_value() && !frame.box_nm.has_value(),
+          "TRR triclinic cell accepted");
+    check(frame.cell_nm.has_value() && close(frame.cell_nm->vectors_nm[1][0], 1.0),
+          "TRR triclinic cell vectors normalized");
+    std::filesystem::remove(path);
+}
 } // namespace
 
 int main() {
@@ -67,6 +84,7 @@ int main() {
     test_format(".dcd");
     test_format(".xtc");
     test_format(".trr");
+    test_triclinic_format();
     if (failures != 0) {
         std::cerr << failures << " chemfiles test(s) failed\n";
         return 1;

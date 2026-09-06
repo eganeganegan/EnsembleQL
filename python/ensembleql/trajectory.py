@@ -34,5 +34,5 @@ class Trajectory:
 
 
 def load(trajectory: str | Path, *, topology: str | Path) -> Trajectory:
-    """Open an XYZ trajectory using atom metadata from a PDB topology."""
+    """Open a supported trajectory using atom metadata and bonds from a PDB topology."""
     return Trajectory(trajectory, topology)

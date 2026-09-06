@@ -54,11 +54,22 @@ bool ChemfilesReader::next(Frame& frame) {
     const auto& cell = source.cell();
     if (cell.shape() == chemfiles::UnitCell::INFINITE) {
         frame.box_nm.reset();
-    } else if (cell.shape() == chemfiles::UnitCell::ORTHORHOMBIC) {
-        const auto lengths = cell.lengths();
-        frame.box_nm = Vec3{lengths[0] * 0.1, lengths[1] * 0.1, lengths[2] * 0.1};
+        frame.cell_nm.reset();
     } else {
-        throw std::runtime_error("Triclinic trajectory boxes are not yet supported by EnsembleQL");
+        const auto matrix = cell.matrix();
+        PeriodicCell periodic_cell;
+        periodic_cell.vectors_nm = {
+            Vec3{matrix[0][0] * 0.1, matrix[1][0] * 0.1, matrix[2][0] * 0.1},
+            Vec3{matrix[0][1] * 0.1, matrix[1][1] * 0.1, matrix[2][1] * 0.1},
+            Vec3{matrix[0][2] * 0.1, matrix[1][2] * 0.1, matrix[2][2] * 0.1},
+        };
+        frame.cell_nm = periodic_cell;
+        if (cell.shape() == chemfiles::UnitCell::ORTHORHOMBIC) {
+            const auto lengths = cell.lengths();
+            frame.box_nm = Vec3{lengths[0] * 0.1, lengths[1] * 0.1, lengths[2] * 0.1};
+        } else {
+            frame.box_nm.reset();
+        }
     }
 
     ++impl_->frame_index;

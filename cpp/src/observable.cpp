@@ -22,7 +22,8 @@ ContactCountObservable::ContactCountObservable(std::vector<std::size_t> a, std::
     : a_(std::move(a)), b_(std::move(b)), cutoff_nm_(cutoff_nm) {}
 double ContactCountObservable::evaluate(const Frame& frame) const { return static_cast<double>(contacts(frame, a_, b_, cutoff_nm_).size()); }
 
-RgObservable::RgObservable(std::vector<std::size_t> selection) : selection_(std::move(selection)) {}
-double RgObservable::evaluate(const Frame& frame) const { return radius_of_gyration(frame, selection_); }
+RgObservable::RgObservable(std::vector<std::size_t> selection, std::vector<Bond> bonds)
+    : selection_(std::move(selection)), bonds_(std::move(bonds)) {}
+double RgObservable::evaluate(const Frame& frame) const { return radius_of_gyration(frame, selection_, bonds_); }
 
 } // namespace ensembleql

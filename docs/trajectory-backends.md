@@ -10,7 +10,7 @@ XYZ support has no external dependency. Coordinates and extended-XYZ lattice val
 
 Chemfiles 0.10 or newer adds streaming readers for XTC, TRR, and DCD. Its coordinates and cell lengths are supplied in angstroms and converted to nm. The `time` frame property for these formats is supplied in ps. If a file has no time property, EnsembleQL uses the reader's default 1 ps step.
 
-The adapter accepts infinite and orthorhombic cells. It rejects triclinic cells because EnsembleQL's current frame model stores three orthogonal lengths rather than a full cell matrix.
+The adapter accepts infinite, orthorhombic, and triclinic cells. Chemfiles cell matrices are converted into EnsembleQL's three-vector cell representation without discarding cell angles.
 
 Configure against an installed package:
 

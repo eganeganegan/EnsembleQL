@@ -75,6 +75,8 @@ void test_io_and_selections() {
     check(reader.next(frame) && frame.coordinates.size() == 3, "XYZ first frame");
     check(close(frame.coordinates[1][0], 0.3), "XYZ angstrom to nm");
     check(reader.next(frame) && close(frame.time_ps, 1000.0), "XYZ explicit time");
+    check(Topology::from_pdb(root + "/tests/data/pbc.pdb").bonds().size() == 1,
+          "PDB CONECT bonds parsed and deduplicated");
 #ifdef ENSEMBLEQL_HAS_CHEMFILES
     check(chemfiles_backend_available(), "chemfiles availability flag enabled");
 #else
@@ -116,8 +118,25 @@ void test_geometry() {
     frame.box_nm = Vec3{2.0, 2.0, 2.0};
     check(close(minimum_distance(frame, {0}, {1}), 0.2), "frame minimum distance uses PBC");
     check(contacts(frame, {0}, {1}, 0.2).size() == 1, "contact crosses periodic boundary");
-    check_throws([&] { (void)radius_of_gyration(frame, {0, 1}); }, "periodic RG requires unwrapping");
+    check(close(radius_of_gyration(frame, {0, 1}, {{0, 1}}), 0.1),
+          "bonded periodic RG unwraps molecule");
+    check_throws([&] { (void)radius_of_gyration(frame, {0, 1}); },
+                 "periodic RG rejects missing bond connectivity");
     check_throws([&] { (void)minimum_image_distance({0, 0, 0}, {1, 0, 0}, {0, 2, 2}); }, "invalid box rejected");
+
+    Frame path_frame{0.0, {{0.1, 0.0, 0.0}, {1.9, 0.0, 0.0}, {1.8, 0.0, 0.0}}, Vec3{2.0, 2.0, 2.0}};
+    check(close(radius_of_gyration(path_frame, {0, 2}, {{0, 1}, {1, 2}}), 0.15),
+          "periodic RG traverses unselected bonded atoms");
+
+    PeriodicCell triclinic;
+    triclinic.vectors_nm = {Vec3{2.0, 0.1, 0.0}, Vec3{0.0, 2.0, 0.0}, Vec3{0.0, 0.0, 2.0}};
+    check(close(minimum_image_distance_cell({0.1, 0.0, 0.0}, {1.9, 0.0, 0.0}, triclinic),
+                std::sqrt(0.05)),
+          "triclinic minimum image distance");
+    PeriodicCell singular;
+    singular.vectors_nm = {Vec3{1.0, 0.0, 0.0}, Vec3{2.0, 0.0, 0.0}, Vec3{0.0, 0.0, 1.0}};
+    check_throws([&] { (void)minimum_image_distance_cell({0, 0, 0}, {1, 0, 0}, singular); },
+                 "singular triclinic cell rejected");
 }
 
 void test_periodic_xyz_and_query() {
@@ -137,7 +156,19 @@ void test_periodic_xyz_and_query() {
           "streaming periodic contact query");
 
     XYZReader triclinic(root + "/tests/data/triclinic.xyz", 2);
-    check_throws([&] { (void)triclinic.next(frame); }, "triclinic XYZ fails explicitly");
+    check(triclinic.next(frame) && frame.cell_nm.has_value() && !frame.box_nm.has_value(),
+          "triclinic extended XYZ cell metadata");
+    check(close(minimum_distance(frame, {0}, {1}), std::sqrt(0.05)),
+          "triclinic XYZ drives minimum image");
+    auto triclinic_trajectory = Trajectory::from_files(root + "/tests/data/triclinic.xyz", root + "/tests/data/pbc.pdb");
+    const auto triclinic_events = Engine().query(
+        triclinic_trajectory, "FIND CONTACT(resid 1, resid 2, cutoff=0.23nm);");
+    check(triclinic_events.size() == 1, "streaming triclinic contact query");
+
+    auto rg_trajectory = Trajectory::from_files(root + "/tests/data/pbc.xyz", root + "/tests/data/pbc.pdb");
+    const auto rg_events = Engine().query(rg_trajectory, "FIND RG(protein) < 0.11nm;");
+    check(rg_events.size() == 1 && close(rg_events[0].start_time, 0.0) && close(rg_events[0].end_time, 0.0),
+          "streaming periodic RG uses PDB bond unwrapping");
 }
 
 void test_events_and_temporal() {

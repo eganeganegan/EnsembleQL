@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ensembleql/topology.hpp"
 #include "ensembleql/trajectory.hpp"
 
 #include <cstddef>
@@ -49,11 +50,12 @@ private:
 
 class RgObservable final : public Observable {
 public:
-    explicit RgObservable(std::vector<std::size_t> selection);
+    explicit RgObservable(std::vector<std::size_t> selection, std::vector<Bond> bonds = {});
     double evaluate(const Frame& frame) const override;
     std::string name() const override { return "RG"; }
 private:
     std::vector<std::size_t> selection_;
+    std::vector<Bond> bonds_;
 };
 
 } // namespace ensembleql

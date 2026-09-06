@@ -34,6 +34,7 @@ PYBIND11_MODULE(_core, module) {
         .def_readonly("chain", &Atom::chain).def_readonly("element", &Atom::element);
     py::class_<Topology>(module, "Topology")
         .def_static("from_pdb", &Topology::from_pdb).def_property_readonly("atoms", &Topology::atoms)
+        .def_property_readonly("bonds", &Topology::bonds)
         .def("select", [](const Topology& topology, const std::string& expression) { return Selection(expression).resolve(topology); });
     py::class_<Event>(module, "Event")
         .def_readonly("start", &Event::start_time).def_readonly("end", &Event::end_time)
@@ -53,8 +54,14 @@ PYBIND11_MODULE(_core, module) {
         return static_cast<int>(query.root->kind);
     });
     module.def("distance", [](const Vec3& a, const Vec3& b) { return distance(a, b); });
-    module.def("minimum_image_distance", &minimum_image_distance,
+    module.def("minimum_image_distance",
+               static_cast<double (*)(const Vec3&, const Vec3&, const Vec3&)>(&minimum_image_distance),
                py::arg("a"), py::arg("b"), py::arg("box_nm"));
+    module.def("minimum_image_distance_cell",
+               [](const Vec3& a, const Vec3& b, const std::array<Vec3, 3>& vectors_nm) {
+                   return minimum_image_distance_cell(a, b, PeriodicCell{vectors_nm});
+               },
+               py::arg("a"), py::arg("b"), py::arg("vectors_nm"));
     module.def("chemfiles_backend_available", &chemfiles_backend_available);
     module.def("explain_query", [](const Topology& topology, const std::string& text) {
         return explanation_dict(Engine().explain(topology, text));

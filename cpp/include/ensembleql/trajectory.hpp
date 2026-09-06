@@ -14,10 +14,19 @@ namespace ensembleql {
 
 using Vec3 = std::array<double, 3>;
 
+struct PeriodicCell {
+    // Cell vectors a, b, and c in nm. Cartesian positions are H * fractional,
+    // where these vectors are the columns of H.
+    std::array<Vec3, 3> vectors_nm{};
+};
+
 struct Frame {
     double time_ps{};
     std::vector<Vec3> coordinates;
+    // Retained for source compatibility with callers constructing
+    // orthorhombic frames directly. New readers also populate cell_nm.
     std::optional<Vec3> box_nm;
+    std::optional<PeriodicCell> cell_nm;
 };
 
 class FrameReader {

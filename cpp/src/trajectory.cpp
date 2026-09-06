@@ -12,6 +12,11 @@
 
 namespace ensembleql {
 namespace {
+struct ParsedCell {
+    std::optional<Vec3> box_nm;
+    std::optional<PeriodicCell> cell_nm;
+};
+
 void validate_box(const Vec3& box) {
     for (const double length : box) {
         if (!std::isfinite(length) || length <= 0.0) {
@@ -20,7 +25,35 @@ void validate_box(const Vec3& box) {
     }
 }
 
-std::optional<Vec3> parse_box(const std::string& comment) {
+double determinant(const PeriodicCell& cell) {
+    const auto& a = cell.vectors_nm[0];
+    const auto& b = cell.vectors_nm[1];
+    const auto& c = cell.vectors_nm[2];
+    return a[0] * (b[1] * c[2] - b[2] * c[1]) -
+           b[0] * (a[1] * c[2] - a[2] * c[1]) +
+           c[0] * (a[1] * b[2] - a[2] * b[1]);
+}
+
+void validate_cell(const PeriodicCell& cell) {
+    for (const auto& vector : cell.vectors_nm) {
+        for (const double value : vector) {
+            if (!std::isfinite(value)) throw std::runtime_error("XYZ periodic cell vectors must be finite");
+        }
+    }
+    if (std::abs(determinant(cell)) <= 1e-15) {
+        throw std::runtime_error("XYZ periodic cell matrix must be invertible");
+    }
+}
+
+PeriodicCell orthorhombic_cell(const Vec3& box) {
+    PeriodicCell cell;
+    cell.vectors_nm = {Vec3{box[0], 0.0, 0.0},
+                       Vec3{0.0, box[1], 0.0},
+                       Vec3{0.0, 0.0, box[2]}};
+    return cell;
+}
+
+ParsedCell parse_cell(const std::string& comment) {
     const std::regex lattice_re(R"eql(Lattice\s*=\s*"([^"]+)")eql", std::regex::icase);
     std::smatch match;
     if (std::regex_search(comment, match, lattice_re)) {
@@ -31,15 +64,22 @@ std::optional<Vec3> parse_box(const std::string& comment) {
         }
         double extra{};
         if (values >> extra) throw std::runtime_error("Extended XYZ Lattice must contain exactly nine values");
+        PeriodicCell cell;
+        cell.vectors_nm = {
+            Vec3{matrix[0] * 0.1, matrix[1] * 0.1, matrix[2] * 0.1},
+            Vec3{matrix[3] * 0.1, matrix[4] * 0.1, matrix[5] * 0.1},
+            Vec3{matrix[6] * 0.1, matrix[7] * 0.1, matrix[8] * 0.1},
+        };
+        validate_cell(cell);
         constexpr double tolerance = 1e-12;
-        for (const std::size_t index : {1U, 2U, 3U, 5U, 6U, 7U}) {
-            if (std::abs(matrix[index]) > tolerance) {
-                throw std::runtime_error("Triclinic XYZ boxes are not yet supported; expected an orthorhombic Lattice matrix");
-            }
+        std::optional<Vec3> box;
+        if (std::abs(matrix[1]) <= tolerance && std::abs(matrix[2]) <= tolerance &&
+            std::abs(matrix[3]) <= tolerance && std::abs(matrix[5]) <= tolerance &&
+            std::abs(matrix[6]) <= tolerance && std::abs(matrix[7]) <= tolerance) {
+            box = Vec3{matrix[0] * 0.1, matrix[4] * 0.1, matrix[8] * 0.1};
+            validate_box(*box);
         }
-        Vec3 box{matrix[0] * 0.1, matrix[4] * 0.1, matrix[8] * 0.1};
-        validate_box(box);
-        return box;
+        return {box, cell};
     }
     const std::regex lattice_marker(R"(\bLattice\s*=)", std::regex::icase);
     if (std::regex_search(comment, lattice_marker)) {
@@ -55,13 +95,13 @@ std::optional<Vec3> parse_box(const std::string& comment) {
             box[index] = parse_distance(match[index + 1].str() + match[4].str()).nm;
         }
         validate_box(box);
-        return box;
+        return {box, orthorhombic_cell(box)};
     }
     const std::regex box_marker(R"(\bbox\s*=)", std::regex::icase);
     if (std::regex_search(comment, box_marker)) {
         throw std::runtime_error("Malformed XYZ box metadata; expected box=Lx,Ly,Lz<unit>");
     }
-    return std::nullopt;
+    return {};
 }
 } // namespace
 
@@ -101,7 +141,9 @@ bool XYZReader::next(Frame& frame) {
     const std::regex time_re(R"((?:time\s*=\s*)?([0-9]+(?:\.[0-9]+)?)\s*(fs|ps|ns|us)\b)", std::regex::icase);
     std::smatch match;
     if (std::regex_search(comment, match, time_re)) frame.time_ps = parse_duration(match[1].str() + match[2].str()).ps;
-    frame.box_nm = parse_box(comment);
+    const ParsedCell parsed_cell = parse_cell(comment);
+    frame.box_nm = parsed_cell.box_nm;
+    frame.cell_nm = parsed_cell.cell_nm;
     frame.coordinates.clear();
     frame.coordinates.reserve(atom_count);
     for (std::size_t i = 0; i < atom_count; ++i) {

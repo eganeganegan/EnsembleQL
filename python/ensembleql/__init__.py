@@ -5,12 +5,20 @@ from .results import EventResults
 from .query import explain
 
 try:
-    from ._core import Atom, Event, QueryError, Topology, chemfiles_backend_available, minimum_image_distance
+    from ._core import (
+        Atom,
+        Event,
+        QueryError,
+        Topology,
+        chemfiles_backend_available,
+        minimum_image_distance,
+        minimum_image_distance_cell,
+    )
 except ImportError:  # A source checkout may not have built the native module yet.
-    Atom = Event = Topology = chemfiles_backend_available = minimum_image_distance = None
+    Atom = Event = Topology = chemfiles_backend_available = minimum_image_distance = minimum_image_distance_cell = None
 
     class QueryError(RuntimeError):
         pass
 
-__all__ = ["Atom", "Event", "EventResults", "QueryError", "Topology", "Trajectory", "chemfiles_backend_available", "explain", "load", "minimum_image_distance"]
+__all__ = ["Atom", "Event", "EventResults", "QueryError", "Topology", "Trajectory", "chemfiles_backend_available", "explain", "load", "minimum_image_distance", "minimum_image_distance_cell"]
 __version__ = "0.1.0"

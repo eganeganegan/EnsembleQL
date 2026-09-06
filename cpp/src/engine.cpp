@@ -94,7 +94,9 @@ std::shared_ptr<Observable> make_observable(const ast::ExprPtr& expression, cons
         case ast::Kind::Contact: { const auto& x = static_cast<const ast::ContactExpr&>(*expression); return std::make_shared<ContactObservable>(resolve(x.a), resolve(x.b), x.cutoff.nm); }
         case ast::Kind::Distance: { const auto& x = static_cast<const ast::DistanceExpr&>(*expression); return std::make_shared<DistanceObservable>(resolve(x.a), resolve(x.b)); }
         case ast::Kind::ContactCount: { const auto& x = static_cast<const ast::ContactCountExpr&>(*expression); return std::make_shared<ContactCountObservable>(resolve(x.a), resolve(x.b), x.cutoff.nm); }
-        case ast::Kind::Rg: return std::make_shared<RgObservable>(resolve(static_cast<const ast::RgExpr&>(*expression).selection));
+        case ast::Kind::Rg:
+            return std::make_shared<RgObservable>(
+                resolve(static_cast<const ast::RgExpr&>(*expression).selection), topology.bonds());
         default: throw std::logic_error("Expression is not an observable");
     }
 }

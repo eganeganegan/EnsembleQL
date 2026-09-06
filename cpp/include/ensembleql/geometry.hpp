@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ensembleql/topology.hpp"
 #include "ensembleql/trajectory.hpp"
 
 #include <cstddef>
@@ -14,7 +15,9 @@ struct Contact {
 };
 
 double distance(const Vec3& a, const Vec3& b);
+Vec3 minimum_image_displacement(const Vec3& displacement, const PeriodicCell& cell);
 double minimum_image_distance(const Vec3& a, const Vec3& b, const Vec3& box_nm);
+double minimum_image_distance_cell(const Vec3& a, const Vec3& b, const PeriodicCell& cell);
 double minimum_distance(const Frame& frame,
                         const std::vector<std::size_t>& selection_a,
                         const std::vector<std::size_t>& selection_b);
@@ -24,5 +27,8 @@ std::vector<Contact> contacts(const Frame& frame,
                               double cutoff_nm);
 double radius_of_gyration(const Frame& frame,
                           const std::vector<std::size_t>& selection);
+double radius_of_gyration(const Frame& frame,
+                          const std::vector<std::size_t>& selection,
+                          const std::vector<Bond>& bonds);
 
 } // namespace ensembleql
