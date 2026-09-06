@@ -31,20 +31,60 @@ std::vector<std::string> split_args(const std::string& text) {
     return result;
 }
 
-Distance contact_cutoff(const std::vector<std::string>& args, const std::string& observable) {
-    if (args.size() == 2) return {0.45};
-    if (args.size() != 3) throw QueryError(observable + " requires two selections and an optional cutoff");
-    std::string value = trim(args[2]);
-    const auto equals = value.find('=');
-    if (equals != std::string::npos) {
-        if (upper(trim(value.substr(0, equals))) != "CUTOFF") {
-            throw QueryError("Unknown " + observable + " option: " + trim(value.substr(0, equals)));
+struct ContactOptions {
+    Distance cutoff{0.45};
+    ContactMode mode{ContactMode::Atom};
+};
+
+ContactOptions contact_options(const std::vector<std::string>& args, const std::string& observable,
+                               bool allow_mode) {
+    if (args.size() < 2) throw QueryError(observable + " requires two selections");
+    ContactOptions options;
+    bool cutoff_seen = false;
+    bool mode_seen = false;
+    for (std::size_t index = 2; index < args.size(); ++index) {
+        std::string value = trim(args[index]);
+        const auto equals = value.find('=');
+        std::string key;
+        if (equals == std::string::npos) {
+            key = "CUTOFF"; // Preserve the positional third-argument syntax.
+        } else {
+            key = upper(trim(value.substr(0, equals)));
+            value = trim(value.substr(equals + 1));
         }
-        value = trim(value.substr(equals + 1));
+        if (key == "CUTOFF") {
+            if (cutoff_seen) throw QueryError("Duplicate " + observable + " cutoff option");
+            options.cutoff = parse_distance(value);
+            if (options.cutoff.nm < 0.0) throw QueryError("Contact cutoff must be non-negative");
+            cutoff_seen = true;
+        } else if (key == "MODE" && allow_mode) {
+            if (mode_seen) throw QueryError("Duplicate " + observable + " mode option");
+            const std::string mode = upper(value);
+            if (mode == "ATOM") options.mode = ContactMode::Atom;
+            else if (mode == "RESIDUE") options.mode = ContactMode::Residue;
+            else throw QueryError("CONTACT_COUNT mode must be 'atom' or 'residue'");
+            mode_seen = true;
+        } else {
+            throw QueryError("Unknown " + observable + " option: " +
+                             (equals == std::string::npos ? value : trim(args[index].substr(0, equals))));
+        }
     }
-    const Distance cutoff = parse_distance(value);
-    if (cutoff.nm < 0.0) throw QueryError("Contact cutoff must be non-negative");
-    return cutoff;
+    return options;
+}
+
+bool rg_mass_weighted(const std::vector<std::string>& args) {
+    if (args.empty() || args.size() > 2) {
+        throw QueryError("RG requires one selection and an optional mass_weighted option");
+    }
+    if (args.size() == 1) return false;
+    const auto equals = args[1].find('=');
+    if (equals == std::string::npos || upper(trim(args[1].substr(0, equals))) != "MASS_WEIGHTED") {
+        throw QueryError("Unknown RG option: " + trim(args[1].substr(0, equals)));
+    }
+    const std::string value = upper(trim(args[1].substr(equals + 1)));
+    if (value == "TRUE") return true;
+    if (value == "FALSE") return false;
+    throw QueryError("RG mass_weighted option must be true or false");
 }
 
 class Cursor {
@@ -109,17 +149,16 @@ ast::ExprPtr parse_primary(Cursor& cursor) {
         const std::string name = cursor.identifier();
         const auto args = split_args(cursor.parenthesized_content());
         if (name == "CONTACT") {
-            const auto cutoff = contact_cutoff(args, name);
-            result = std::make_shared<ast::ContactExpr>(args[0], args[1], cutoff);
+            const auto options = contact_options(args, name, false);
+            result = std::make_shared<ast::ContactExpr>(args[0], args[1], options.cutoff);
         } else if (name == "DISTANCE") {
             if (args.size() != 2) throw QueryError("DISTANCE requires exactly two selections");
             result = std::make_shared<ast::DistanceExpr>(args[0], args[1]);
         } else if (name == "CONTACT_COUNT") {
-            const auto cutoff = contact_cutoff(args, name);
-            result = std::make_shared<ast::ContactCountExpr>(args[0], args[1], cutoff);
+            const auto options = contact_options(args, name, true);
+            result = std::make_shared<ast::ContactCountExpr>(args[0], args[1], options.cutoff, options.mode);
         } else if (name == "RG") {
-            if (args.size() != 1) throw QueryError("RG requires exactly one selection");
-            result = std::make_shared<ast::RgExpr>(args[0]);
+            result = std::make_shared<ast::RgExpr>(args[0], rg_mass_weighted(args));
         } else {
             throw QueryError("Unknown observable: " + name);
         }

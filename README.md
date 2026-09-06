@@ -90,6 +90,8 @@ FIND CONTACT(resid 17, resid 42) FOR >= 5ns;
 FIND DISTANCE(resid 17, resid 42) < 0.8nm;
 FIND RG(protein) < 2.0nm FOR >= 10ns;
 FIND CONTACT_COUNT(resid 1:20, resid 40:60) >= 4;
+FIND RG(protein, mass_weighted=true) < 2.0nm;
+FIND CONTACT_COUNT(resid 1:20, resid 40:60, mode=residue) >= 4;
 FIND CONTACT(resid 17, resid 42) OVERLAPS CONTACT(resid 17, resid 53);
 ```
 
@@ -97,7 +99,7 @@ FIND CONTACT(resid 17, resid 42) OVERLAPS CONTACT(resid 17, resid 53);
 
 Selections support `resid 17`, `resid 17:25`, `name CA`, `resname ARG`, `chain A`, `protein`, and `hydrogen`. They compose with case-insensitive `and`, `or`, `not`, and parentheses; `and` binds more tightly than `or`.
 
-`CONTACT` and `CONTACT_COUNT` use a 0.45 nm default cutoff. Override it with a dimensionally checked third argument such as `cutoff=4A` or `cutoff=0.35nm`.
+`CONTACT` and `CONTACT_COUNT` use a 0.45 nm default cutoff. Override it with a dimensionally checked option such as `cutoff=4A` or `cutoff=0.35nm`. `CONTACT_COUNT` accepts `mode=atom` (the default) or `mode=residue`; options can appear in either order.
 
 ## CLI
 
@@ -128,8 +130,8 @@ The explanation reports resolved selection expressions, canonical deduplicated o
 - Coordinates and distances are normalized to nm. XYZ coordinates are interpreted as angstroms; PDB is used for topology metadata only.
 - Times are normalized to ps. Supported distance units are `nm`, `angstrom`, and `A`; supported time units are `fs`, `ps`, `ns`, and `us`. Query thresholds require explicit units except integer-like counts.
 - `DISTANCE(A,B)` is the minimum distance between distinct atoms in A and B. It uses Euclidean distance without a cell and a nearest-image search for orthorhombic or triclinic periodic cells.
-- `CONTACT(A,B)` is true when that minimum distance is less than or equal to 0.45 nm. `CONTACT_COUNT` counts atom pairs at or below the same inclusive cutoff. Both honor orthorhombic and triclinic periodic boundaries.
-- `RG(A)` is the unweighted root-mean-square distance of selected atom coordinates from their geometric centroid. On periodic frames, the selected atoms are reconstructed by traversing PDB `CONECT` bonds before calculating the centroid. Mass-weighting is not yet implemented.
+- `CONTACT(A,B)` is true when that minimum distance is less than or equal to 0.45 nm. `CONTACT_COUNT` counts unique unordered atom pairs, or unique unordered `(chain, resid)` pairs with `mode=residue`, at or below the same inclusive cutoff. Both honor orthorhombic and triclinic periodic boundaries.
+- `RG(A)` is the unweighted root-mean-square distance of selected atom coordinates from their geometric centroid. `mass_weighted=true` uses standard atomic weights derived from PDB element symbols. On periodic frames, both variants reconstruct the selected atoms by traversing PDB `CONECT` bonds before calculating the centroid. See [observable definitions](docs/observables.md).
 - Event endpoints are the timestamps of the first and last true sampled frames; duration is `end - start`. Single-sample events therefore have zero observed duration. Irregular timestamps are supported, while duplicate or decreasing timestamps are rejected. `FOR >=`, contact cutoffs, `WITHIN`, and interval boundary comparisons are inclusive. See [sampled-time event semantics](docs/temporal-semantics.md).
 - Periodic cells use a nearest-image search over neighboring lattice translations. XYZ comments accept `box=20,20,20A`; extended XYZ accepts a full `Lattice="..."` matrix in angstroms. Periodic `RG` requires the selected atoms to belong to one connected PDB bond component. See [periodic-boundary conventions](docs/periodic-boundaries.md).
 
@@ -141,7 +143,7 @@ The straightforward contact kernel is currently O(N×M). Its stable API permits 
 
 ## Current limitations
 
-PDB supplies topology metadata and explicit `CONECT` bonds. XYZ is always supported; XTC, TRR, and DCD are available through the optional chemfiles backend. Chemfiles coordinates and cell vectors are converted from angstroms to nm, while its trajectory `time` property is already interpreted as ps. Periodic `RG` requires connected bond metadata; EnsembleQL does not yet infer standard-residue bonds, mass-weight RG, or expose a user-configurable default timestep. Event intervals use sampled timestamps and therefore do not infer behavior between frames. `AND`/`OR` combine frame predicates; temporal relations operate on extracted intervals.
+PDB supplies topology metadata, element-derived standard atomic weights, and explicit `CONECT` bonds. XYZ is always supported; XTC, TRR, and DCD are available through the optional chemfiles backend. Chemfiles coordinates and cell vectors are converted from angstroms to nm, while its trajectory `time` property is already interpreted as ps. Periodic `RG` requires connected bond metadata; EnsembleQL does not yet infer standard-residue bonds or expose a user-configurable default timestep. Event intervals use sampled timestamps and therefore do not infer behavior between frames. `AND`/`OR` combine frame predicates; temporal relations operate on extracted intervals.
 
 ## Development
 

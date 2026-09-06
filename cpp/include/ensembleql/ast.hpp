@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ensembleql/topology.hpp"
 #include "ensembleql/units.hpp"
 
 #include <memory>
@@ -32,15 +33,20 @@ struct DistanceExpr final : Expr {
 };
 
 struct ContactCountExpr final : Expr {
-    ContactCountExpr(std::string first, std::string second, Distance distance = {0.45})
-        : Expr(Kind::ContactCount), a(std::move(first)), b(std::move(second)), cutoff(distance) {}
+    ContactCountExpr(std::string first, std::string second, Distance distance = {0.45},
+                     ContactMode contact_mode = ContactMode::Atom)
+        : Expr(Kind::ContactCount), a(std::move(first)), b(std::move(second)),
+          cutoff(distance), mode(contact_mode) {}
     std::string a, b;
     Distance cutoff;
+    ContactMode mode;
 };
 
 struct RgExpr final : Expr {
-    explicit RgExpr(std::string value) : Expr(Kind::Rg), selection(std::move(value)) {}
+    explicit RgExpr(std::string value, bool weighted = false)
+        : Expr(Kind::Rg), selection(std::move(value)), mass_weighted(weighted) {}
     std::string selection;
+    bool mass_weighted;
 };
 
 enum class ComparisonOp { Less, LessEqual, Greater, GreaterEqual, Equal, NotEqual };

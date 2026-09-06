@@ -70,6 +70,7 @@ void test_io_and_selections() {
     auto topology = Topology::from_pdb(root + "/examples/idr_contact_switching/switching.pdb");
     check(topology.size() == 3, "PDB atom count");
     check(topology.atoms()[0].residue_index == 17 && topology.atoms()[1].residue_name == "ASP", "PDB fields");
+    check(close(topology.atoms()[0].mass_da, 12.011), "PDB element mapped to standard atomic mass");
     XYZReader reader(root + "/examples/idr_contact_switching/switching.xyz", 3);
     Frame frame;
     check(reader.next(frame) && frame.coordinates.size() == 3, "XYZ first frame");
@@ -112,6 +113,33 @@ void test_geometry() {
     check(contacts(frame, {0}, {1}, 0.499).empty(), "contact cutoff below boundary");
     Frame rg_frame{0.0, {{-1.0, 0.0, 0.0}, {1.0, 0.0, 0.0}}, std::nullopt};
     check(close(radius_of_gyration(rg_frame, {0, 1}), 1.0), "radius of gyration");
+    const std::vector<double> carbon_oxygen_masses{12.011, 15.999};
+    const double weighted_expected = 2.0 * std::sqrt(12.011 * 15.999) / (12.011 + 15.999);
+    check(close(mass_weighted_radius_of_gyration(
+                    rg_frame, {0, 1}, {}, carbon_oxygen_masses), weighted_expected),
+          "mass-weighted radius of gyration");
+    check_throws([&] {
+        (void)mass_weighted_radius_of_gyration(rg_frame, {0, 1}, {}, {12.011, 0.0});
+    }, "mass-weighted RG rejects unknown mass");
+
+    Topology residue_topology({
+        {0, "C1", "ALA", 1, 'A', "C"}, {1, "O1", "ALA", 1, 'A', "O"},
+        {2, "C2", "GLY", 2, 'A', "C"}, {3, "O2", "GLY", 2, 'A', "O"},
+    });
+    Frame residue_frame{0.0, {{0.0, 0.0, 0.0}, {0.1, 0.0, 0.0},
+                              {0.2, 0.0, 0.0}, {0.3, 0.0, 0.0}}, std::nullopt};
+    check(contact_count(residue_frame, {0, 1}, {2, 3}, 0.5,
+                        ContactMode::Atom, residue_topology) == 4,
+          "atom contact count retains atom pairs");
+    check(contact_count(residue_frame, {0, 1}, {2, 3}, 0.5,
+                        ContactMode::Residue, residue_topology) == 1,
+          "residue contact count deduplicates residue pairs");
+    check(contact_count(residue_frame, {0, 1}, {0, 1}, 0.5,
+                        ContactMode::Atom, residue_topology) == 1,
+          "atom contact count deduplicates reversed overlapping pairs");
+    check(contact_count(residue_frame, {0, 1}, {0, 1}, 0.5,
+                        ContactMode::Residue, residue_topology) == 0,
+          "residue contact count excludes self-residue contacts");
     check(close(minimum_image_distance({0.1, 0.0, 0.0}, {1.9, 0.0, 0.0}, {2.0, 2.0, 2.0}), 0.2),
           "orthorhombic minimum image distance");
     frame.coordinates = {{0.1, 0.0, 0.0}, {1.9, 0.0, 0.0}};
@@ -201,6 +229,16 @@ void test_parser_planner_engine() {
     check(nested.root->kind == ast::Kind::Before, "parse nested temporal expression");
     const auto cutoff_query = parser.parse("FIND CONTACT(resid 17, resid 42, cutoff=0.35nm);");
     check(close(static_cast<const ast::ContactExpr&>(*cutoff_query.root).cutoff.nm, 0.35), "parse contact cutoff");
+    const auto residue_mode = parser.parse(
+        "FIND CONTACT_COUNT(resid 17, resid 42, mode=residue, cutoff=0.4nm) >= 1;");
+    const auto& residue_count_comparison = static_cast<const ast::ComparisonExpr&>(*residue_mode.root);
+    const auto& residue_count = static_cast<const ast::ContactCountExpr&>(*residue_count_comparison.operand);
+    check(residue_count.mode == ContactMode::Residue && close(residue_count.cutoff.nm, 0.4),
+          "parse residue contact mode with order-independent options");
+    const auto weighted_rg = parser.parse("FIND RG(protein, mass_weighted=true) < 2nm;");
+    check(static_cast<const ast::RgExpr&>(
+              *static_cast<const ast::ComparisonExpr&>(*weighted_rg.root).operand).mass_weighted,
+          "parse mass-weighted RG");
     const auto precedence = parser.parse("FIND CONTACT(resid 17, resid 42) OR CONTACT(resid 17, resid 53) AND CONTACT(resid 42, resid 53);");
     check(precedence.root->kind == ast::Kind::Or &&
           static_cast<const ast::OrExpr&>(*precedence.root).right->kind == ast::Kind::And,
@@ -210,6 +248,12 @@ void test_parser_planner_engine() {
     check_throws<QueryError>([&] { (void)parser.parse("FIND RG(protein) < 2ns;"); }, "unit dimension error");
     check_throws<QueryError>([&] { (void)parser.parse("FIND CONTACT(resid 17, resid 42, cutoff=2ns);"); }, "contact cutoff dimension error");
     check_throws<QueryError>([&] { (void)parser.parse("FIND CONTACT(resid 17, resid 42) < 1nm;"); }, "boolean contact comparison error");
+    check_throws<QueryError>([&] {
+        (void)parser.parse("FIND CONTACT_COUNT(resid 17, resid 42, mode=molecule) >= 1;");
+    }, "invalid contact count mode");
+    check_throws<QueryError>([&] {
+        (void)parser.parse("FIND RG(protein, mass_weighted=yes) < 1nm;");
+    }, "invalid RG mass weighting option");
 
     const std::string root = ENSEMBLEQL_SOURCE_DIR;
     auto trajectory = Trajectory::from_files(root + "/examples/idr_contact_switching/switching.xyz",
@@ -236,9 +280,40 @@ void test_parser_planner_engine() {
     check(tighter.size() == 1 && close(tighter[0].end_time, 1000.0), "configurable inclusive contact cutoff");
     const auto shared = parser.parse("FIND DISTANCE(resid 17, resid 42) < 1nm AND DISTANCE(resid 42, resid 17) < 2nm;");
     check(Planner().plan(shared, trajectory.topology()).unique_observables == 1, "planner shares symmetric observable");
+    const auto rg_modes = parser.parse(
+        "FIND RG(protein) < 2nm AND RG(protein, mass_weighted=true) < 2nm;");
+    check(Planner().plan(rg_modes, trajectory.topology()).unique_observables == 2,
+          "planner distinguishes weighted and unweighted RG");
+    const Topology unknown_mass_topology({{0, "X", "UNK", 1, 'A', "XX"}});
+    check_throws<QueryError>([&] {
+        (void)Planner().plan(parser.parse("FIND RG(protein, mass_weighted=true) < 1nm;"),
+                             unknown_mass_topology);
+    }, "planner rejects unknown mass before trajectory execution");
     check_throws<QueryError>([&] { (void)Planner().plan(parser.parse("FIND RG(protein);"), trajectory.topology()); }, "numeric root requires comparison");
     check(Engine().explain(trajectory.topology(), "FIND CONTACT(resid 17, resid 42);").frame_predicates.size() == 1,
           "engine explain without trajectory scan");
+
+    Topology observable_topology({
+        {0, "C1", "ALA", 1, 'A', "C"}, {1, "O1", "ALA", 1, 'A', "O"},
+        {2, "C2", "GLY", 2, 'A', "C"}, {3, "O2", "GLY", 2, 'A', "O"},
+    });
+    auto observable_reader = std::make_shared<VectorReader>(std::vector<Frame>{Frame{
+        0.0, {{-1.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {-0.9, 0.0, 0.0}, {0.9, 0.0, 0.0}}, std::nullopt}});
+    Trajectory observable_trajectory(observable_topology, observable_reader);
+    check(Engine().query(observable_trajectory,
+                         "FIND CONTACT_COUNT(resid 1, resid 2, mode=residue, cutoff=0.2nm) == 1;").size() == 1,
+          "residue contact count query execution");
+
+    Topology weighted_topology({
+        {0, "C", "ALA", 1, 'A', "C"}, {1, "O", "GLY", 2, 'A', "O"},
+    });
+    auto weighted_reader = std::make_shared<VectorReader>(std::vector<Frame>{
+        Frame{0.0, {{-1.0, 0.0, 0.0}, {1.0, 0.0, 0.0}}, std::nullopt}});
+    Trajectory weighted_trajectory(weighted_topology, weighted_reader);
+    check(Engine().query(weighted_trajectory, "FIND RG(protein, mass_weighted=true) < 1nm;").size() == 1,
+          "mass-weighted RG query execution");
+    check(Engine().query(weighted_trajectory, "FIND RG(protein) < 1nm;").empty(),
+          "unweighted RG remains the default");
 }
 
 void test_sampled_time_semantics() {

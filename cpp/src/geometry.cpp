@@ -5,7 +5,9 @@
 #include <limits>
 #include <optional>
 #include <queue>
+#include <set>
 #include <stdexcept>
+#include <tuple>
 
 namespace ensembleql {
 namespace {
@@ -68,6 +70,79 @@ std::optional<PeriodicCell> frame_cell(const Frame& frame) {
 
 double frame_distance(const std::optional<PeriodicCell>& cell, const Vec3& a, const Vec3& b) {
     return cell ? minimum_image_distance_cell(a, b, *cell) : distance(a, b);
+}
+
+std::vector<Vec3> coordinates_for_rg(const Frame& frame, const std::vector<std::size_t>& selection,
+                                     const std::vector<Bond>& bonds) {
+    std::vector<Vec3> coordinates = frame.coordinates;
+    const auto cell = frame_cell(frame);
+    if (!cell || selection.size() <= 1) return coordinates;
+
+    std::vector<std::vector<std::size_t>> adjacency(frame.coordinates.size());
+    for (const auto& bond : bonds) {
+        if (bond[0] >= frame.coordinates.size() || bond[1] >= frame.coordinates.size()) {
+            throw std::out_of_range("Topology bond index exceeds frame coordinates");
+        }
+        adjacency[bond[0]].push_back(bond[1]);
+        adjacency[bond[1]].push_back(bond[0]);
+    }
+
+    std::vector<bool> visited(frame.coordinates.size(), false);
+    std::queue<std::size_t> pending;
+    const std::size_t root = selection.front();
+    visited[root] = true;
+    pending.push(root);
+    while (!pending.empty()) {
+        const std::size_t current = pending.front();
+        pending.pop();
+        for (const std::size_t neighbor : adjacency[current]) {
+            if (visited[neighbor]) continue;
+            const Vec3 wrapped_delta{
+                frame.coordinates[neighbor][0] - frame.coordinates[current][0],
+                frame.coordinates[neighbor][1] - frame.coordinates[current][1],
+                frame.coordinates[neighbor][2] - frame.coordinates[current][2],
+            };
+            const Vec3 delta = minimum_image_displacement(wrapped_delta, *cell);
+            for (std::size_t dimension = 0; dimension < 3; ++dimension) {
+                coordinates[neighbor][dimension] = coordinates[current][dimension] + delta[dimension];
+            }
+            visited[neighbor] = true;
+            pending.push(neighbor);
+        }
+    }
+    for (const std::size_t index : selection) {
+        if (!visited[index]) {
+            throw std::runtime_error(
+                "Periodic RG selection spans atoms that are not connected by topology bonds; "
+                "provide PDB CONECT records for molecule unwrapping");
+        }
+    }
+    return coordinates;
+}
+
+double rg_from_coordinates(const std::vector<Vec3>& coordinates,
+                           const std::vector<std::size_t>& selection,
+                           const std::vector<double>* masses_da) {
+    Vec3 center{};
+    double total_weight = 0.0;
+    for (const auto index : selection) {
+        const double weight = masses_da ? (*masses_da)[index] : 1.0;
+        if (!std::isfinite(weight) || weight <= 0.0) {
+            throw std::runtime_error("Mass-weighted RG requires a known positive mass for every selected atom");
+        }
+        total_weight += weight;
+        for (std::size_t dimension = 0; dimension < 3; ++dimension) {
+            center[dimension] += weight * coordinates[index][dimension];
+        }
+    }
+    for (double& value : center) value /= total_weight;
+    double squared = 0.0;
+    for (const auto index : selection) {
+        const double weight = masses_da ? (*masses_da)[index] : 1.0;
+        const double displacement = distance(coordinates[index], center);
+        squared += weight * displacement * displacement;
+    }
+    return std::sqrt(squared / total_weight);
 }
 } // namespace
 
@@ -147,6 +222,35 @@ std::vector<Contact> contacts(const Frame& frame, const std::vector<std::size_t>
     return result;
 }
 
+std::size_t contact_count(const Frame& frame, const std::vector<std::size_t>& a,
+                          const std::vector<std::size_t>& b, double cutoff_nm,
+                          ContactMode mode, const Topology& topology) {
+    const auto atom_contacts = contacts(frame, a, b, cutoff_nm);
+    std::set<Bond> unique_atom_contacts;
+    for (const Contact& contact : atom_contacts) {
+        Bond pair{contact.atom_a, contact.atom_b};
+        if (pair[1] < pair[0]) std::swap(pair[0], pair[1]);
+        unique_atom_contacts.insert(pair);
+    }
+    if (mode == ContactMode::Atom) return unique_atom_contacts.size();
+    if (topology.size() != frame.coordinates.size()) {
+        throw std::invalid_argument("Residue contact counting requires topology and frame atom counts to match");
+    }
+    using Residue = std::pair<char, int>;
+    using ResiduePair = std::pair<Residue, Residue>;
+    std::set<ResiduePair> residue_contacts;
+    for (const Bond& contact : unique_atom_contacts) {
+        Residue first{topology.atoms()[contact[0]].chain,
+                      topology.atoms()[contact[0]].residue_index};
+        Residue second{topology.atoms()[contact[1]].chain,
+                       topology.atoms()[contact[1]].residue_index};
+        if (first == second) continue;
+        if (second < first) std::swap(first, second);
+        residue_contacts.emplace(first, second);
+    }
+    return residue_contacts.size();
+}
+
 double radius_of_gyration(const Frame& frame, const std::vector<std::size_t>& selection) {
     return radius_of_gyration(frame, selection, {});
 }
@@ -154,58 +258,18 @@ double radius_of_gyration(const Frame& frame, const std::vector<std::size_t>& se
 double radius_of_gyration(const Frame& frame, const std::vector<std::size_t>& selection,
                           const std::vector<Bond>& bonds) {
     validate_indices(frame, selection);
-    std::vector<Vec3> coordinates = frame.coordinates;
-    const auto cell = frame_cell(frame);
-    if (cell && selection.size() > 1) {
-        std::vector<std::vector<std::size_t>> adjacency(frame.coordinates.size());
-        for (const auto& bond : bonds) {
-            if (bond[0] >= frame.coordinates.size() || bond[1] >= frame.coordinates.size()) {
-                throw std::out_of_range("Topology bond index exceeds frame coordinates");
-            }
-            adjacency[bond[0]].push_back(bond[1]);
-            adjacency[bond[1]].push_back(bond[0]);
-        }
+    return rg_from_coordinates(coordinates_for_rg(frame, selection, bonds), selection, nullptr);
+}
 
-        std::vector<bool> visited(frame.coordinates.size(), false);
-        std::queue<std::size_t> pending;
-        const std::size_t root = selection.front();
-        visited[root] = true;
-        pending.push(root);
-        while (!pending.empty()) {
-            const std::size_t current = pending.front();
-            pending.pop();
-            for (const std::size_t neighbor : adjacency[current]) {
-                if (visited[neighbor]) continue;
-                const Vec3 wrapped_delta{
-                    frame.coordinates[neighbor][0] - frame.coordinates[current][0],
-                    frame.coordinates[neighbor][1] - frame.coordinates[current][1],
-                    frame.coordinates[neighbor][2] - frame.coordinates[current][2],
-                };
-                const Vec3 delta = minimum_image_displacement(wrapped_delta, *cell);
-                for (std::size_t dimension = 0; dimension < 3; ++dimension) {
-                    coordinates[neighbor][dimension] = coordinates[current][dimension] + delta[dimension];
-                }
-                visited[neighbor] = true;
-                pending.push(neighbor);
-            }
-        }
-        for (const std::size_t index : selection) {
-            if (!visited[index]) {
-                throw std::runtime_error(
-                    "Periodic RG selection spans atoms that are not connected by topology bonds; "
-                    "provide PDB CONECT records for molecule unwrapping");
-            }
-        }
+double mass_weighted_radius_of_gyration(const Frame& frame,
+                                        const std::vector<std::size_t>& selection,
+                                        const std::vector<Bond>& bonds,
+                                        const std::vector<double>& masses_da) {
+    validate_indices(frame, selection);
+    if (masses_da.size() != frame.coordinates.size()) {
+        throw std::invalid_argument("Mass-weighted RG requires one atom mass per frame coordinate");
     }
-    Vec3 center{};
-    for (const auto i : selection) for (std::size_t d = 0; d < 3; ++d) center[d] += coordinates[i][d];
-    for (double& value : center) value /= static_cast<double>(selection.size());
-    double squared = 0.0;
-    for (const auto i : selection) {
-        const double d = distance(coordinates[i], center);
-        squared += d * d;
-    }
-    return std::sqrt(squared / static_cast<double>(selection.size()));
+    return rg_from_coordinates(coordinates_for_rg(frame, selection, bonds), selection, &masses_da);
 }
 
 } // namespace ensembleql

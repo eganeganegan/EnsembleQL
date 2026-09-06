@@ -44,6 +44,19 @@ def test_boolean_selection_and_custom_cutoff():
     assert events[0].end == pytest.approx(1000.0)
 
 
+def test_mass_weighted_rg_and_residue_contact_mode():
+    trajectory = eql.load(EXAMPLE / "switching.xyz", topology=EXAMPLE / "switching.pdb")
+    assert trajectory.topology.atoms[0].mass_da == pytest.approx(12.011)
+    weighted = trajectory.query("FIND RG(protein, mass_weighted=true) < 1nm;")
+    assert len(weighted) == 1
+
+    residue_contacts = trajectory.query(
+        "FIND CONTACT_COUNT(resid 17, resid 42, mode=residue, cutoff=0.45nm) == 1;"
+    )
+    assert len(residue_contacts) == 1
+    assert residue_contacts[0].end == pytest.approx(2000.0)
+
+
 def test_cutoff_rejects_time_dimension():
     trajectory = eql.load(EXAMPLE / "switching.xyz", topology=EXAMPLE / "switching.pdb")
     with pytest.raises(eql.QueryError, match="Distance expected, received time unit"):

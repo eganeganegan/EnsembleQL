@@ -31,7 +31,8 @@ PYBIND11_MODULE(_core, module) {
     py::class_<Atom>(module, "Atom")
         .def_readonly("index", &Atom::index).def_readonly("name", &Atom::name)
         .def_readonly("residue_name", &Atom::residue_name).def_readonly("residue_index", &Atom::residue_index)
-        .def_readonly("chain", &Atom::chain).def_readonly("element", &Atom::element);
+        .def_readonly("chain", &Atom::chain).def_readonly("element", &Atom::element)
+        .def_readonly("mass_da", &Atom::mass_da);
     py::class_<Topology>(module, "Topology")
         .def_static("from_pdb", &Topology::from_pdb).def_property_readonly("atoms", &Topology::atoms)
         .def_property_readonly("bonds", &Topology::bonds)

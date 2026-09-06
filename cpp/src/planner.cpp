@@ -2,6 +2,7 @@
 #include "ensembleql/parser.hpp"
 #include "ensembleql/selection.hpp"
 
+#include <cmath>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -66,10 +67,15 @@ std::string render(const ast::ExprPtr& expression) {
         }
         case ast::Kind::ContactCount: {
             const auto& value = static_cast<const ast::ContactCountExpr&>(*expression);
-            return "CONTACT_COUNT(" + value.a + ", " + value.b + ", cutoff=" + number(value.cutoff.nm) + "nm)";
+            return "CONTACT_COUNT(" + value.a + ", " + value.b + ", cutoff=" +
+                   number(value.cutoff.nm) + "nm, mode=" +
+                   (value.mode == ContactMode::Residue ? "residue" : "atom") + ")";
         }
-        case ast::Kind::Rg:
-            return "RG(" + static_cast<const ast::RgExpr&>(*expression).selection + ")";
+        case ast::Kind::Rg: {
+            const auto& value = static_cast<const ast::RgExpr&>(*expression);
+            return "RG(" + value.selection +
+                   (value.mass_weighted ? ", mass_weighted=true" : "") + ")";
+        }
         case ast::Kind::Comparison: {
             const auto& value = static_cast<const ast::ComparisonExpr&>(*expression);
             return render(value.operand) + " " + comparison_name(value.op) + " " + number(value.threshold) +
@@ -151,8 +157,9 @@ std::shared_ptr<PlanNode> build(const ast::ExprPtr& expression, const Topology& 
     node->kind = expression->kind;
     node->expression = expression;
     auto require = [&](const std::string& value) {
-        Selection(value).resolve(topology);
+        auto resolved = Selection(value).resolve(topology);
         selections.insert(value);
+        return resolved;
     };
     switch (expression->kind) {
         case ast::Kind::Contact: {
@@ -165,11 +172,28 @@ std::shared_ptr<PlanNode> build(const ast::ExprPtr& expression, const Topology& 
         }
         case ast::Kind::ContactCount: {
             const auto& value = static_cast<const ast::ContactCountExpr&>(*expression);
-            require(value.a); require(value.b); observables.insert(pair_key("CONTACT_COUNT", value.a, value.b, ",cutoff=" + number(value.cutoff.nm) + "nm")); break;
+            const std::string mode = value.mode == ContactMode::Residue ? ",mode=residue" : ",mode=atom";
+            require(value.a); require(value.b);
+            observables.insert(pair_key("CONTACT_COUNT", value.a, value.b,
+                                        ",cutoff=" + number(value.cutoff.nm) + "nm" + mode));
+            break;
         }
         case ast::Kind::Rg: {
             const auto& value = static_cast<const ast::RgExpr&>(*expression);
-            require(value.selection); observables.insert("RG(" + value.selection + ")"); break;
+            const auto resolved = require(value.selection);
+            if (value.mass_weighted) {
+                for (const std::size_t index : resolved) {
+                    const double mass = topology.atoms()[index].mass_da;
+                    if (!std::isfinite(mass) || mass <= 0.0) {
+                        throw QueryError("Mass-weighted RG requires a known positive mass for atom " +
+                                         std::to_string(index) + " (element '" +
+                                         topology.atoms()[index].element + "')");
+                    }
+                }
+            }
+            observables.insert("RG(" + value.selection +
+                               (value.mass_weighted ? ",mass_weighted=true" : "") + ")");
+            break;
         }
         case ast::Kind::Comparison: {
             const auto& value = static_cast<const ast::ComparisonExpr&>(*expression);

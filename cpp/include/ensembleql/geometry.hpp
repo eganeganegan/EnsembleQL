@@ -25,10 +25,20 @@ std::vector<Contact> contacts(const Frame& frame,
                               const std::vector<std::size_t>& selection_a,
                               const std::vector<std::size_t>& selection_b,
                               double cutoff_nm);
+std::size_t contact_count(const Frame& frame,
+                          const std::vector<std::size_t>& selection_a,
+                          const std::vector<std::size_t>& selection_b,
+                          double cutoff_nm,
+                          ContactMode mode,
+                          const Topology& topology);
 double radius_of_gyration(const Frame& frame,
                           const std::vector<std::size_t>& selection);
 double radius_of_gyration(const Frame& frame,
                           const std::vector<std::size_t>& selection,
                           const std::vector<Bond>& bonds);
+double mass_weighted_radius_of_gyration(const Frame& frame,
+                                        const std::vector<std::size_t>& selection,
+                                        const std::vector<Bond>& bonds,
+                                        const std::vector<double>& masses_da);
 
 } // namespace ensembleql

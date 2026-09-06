@@ -42,10 +42,14 @@ std::string observable_signature(const ast::ExprPtr& expression) {
         }
         case ast::Kind::ContactCount: {
             const auto& x = static_cast<const ast::ContactCountExpr&>(*expression);
-            return pair_signature("CONTACT_COUNT", x.a, x.b, ",cutoff=" + number(x.cutoff.nm) + "nm");
+            const std::string mode = x.mode == ContactMode::Residue ? ",mode=residue" : ",mode=atom";
+            return pair_signature("CONTACT_COUNT", x.a, x.b,
+                                  ",cutoff=" + number(x.cutoff.nm) + "nm" + mode);
         }
-        case ast::Kind::Rg:
-            return "RG(" + static_cast<const ast::RgExpr&>(*expression).selection + ")";
+        case ast::Kind::Rg: {
+            const auto& x = static_cast<const ast::RgExpr&>(*expression);
+            return "RG(" + x.selection + (x.mass_weighted ? ",mass_weighted=true" : "") + ")";
+        }
         default:
             throw std::logic_error("Expression is not an observable");
     }
@@ -61,10 +65,14 @@ std::string signature(const ast::ExprPtr& expression) {
         case ast::Kind::Distance: { const auto& x = static_cast<const ast::DistanceExpr&>(*expression); return "DISTANCE(" + x.a + "," + x.b + ")"; }
         case ast::Kind::ContactCount: {
             const auto& x = static_cast<const ast::ContactCountExpr&>(*expression);
-            const std::string option = x.cutoff.nm == 0.45 ? "" : ",cutoff=" + number(x.cutoff.nm) + "nm";
+            std::string option = x.cutoff.nm == 0.45 ? "" : ",cutoff=" + number(x.cutoff.nm) + "nm";
+            if (x.mode == ContactMode::Residue) option += ",mode=residue";
             return "CONTACT_COUNT(" + x.a + "," + x.b + option + ")";
         }
-        case ast::Kind::Rg: return "RG(" + static_cast<const ast::RgExpr&>(*expression).selection + ")";
+        case ast::Kind::Rg: {
+            const auto& x = static_cast<const ast::RgExpr&>(*expression);
+            return "RG(" + x.selection + (x.mass_weighted ? ",mass_weighted=true" : "") + ")";
+        }
         case ast::Kind::Comparison: { const auto& x = static_cast<const ast::ComparisonExpr&>(*expression); return signature(x.operand) + "#CMP" + std::to_string(static_cast<int>(x.op)) + ":" + std::to_string(x.threshold); }
         case ast::Kind::And: case ast::Kind::Or: { const auto& x = static_cast<const ast::BinaryExpr&>(*expression); return "(" + signature(x.left) + (expression->kind == ast::Kind::And ? "&" : "|") + signature(x.right) + ")"; }
         case ast::Kind::For: return signature(static_cast<const ast::ForExpr&>(*expression).operand);
@@ -93,10 +101,16 @@ std::shared_ptr<Observable> make_observable(const ast::ExprPtr& expression, cons
     switch (expression->kind) {
         case ast::Kind::Contact: { const auto& x = static_cast<const ast::ContactExpr&>(*expression); return std::make_shared<ContactObservable>(resolve(x.a), resolve(x.b), x.cutoff.nm); }
         case ast::Kind::Distance: { const auto& x = static_cast<const ast::DistanceExpr&>(*expression); return std::make_shared<DistanceObservable>(resolve(x.a), resolve(x.b)); }
-        case ast::Kind::ContactCount: { const auto& x = static_cast<const ast::ContactCountExpr&>(*expression); return std::make_shared<ContactCountObservable>(resolve(x.a), resolve(x.b), x.cutoff.nm); }
-        case ast::Kind::Rg:
-            return std::make_shared<RgObservable>(
-                resolve(static_cast<const ast::RgExpr&>(*expression).selection), topology.bonds());
+        case ast::Kind::ContactCount: {
+            const auto& x = static_cast<const ast::ContactCountExpr&>(*expression);
+            return std::make_shared<ContactCountObservable>(
+                resolve(x.a), resolve(x.b), x.cutoff.nm, x.mode, topology);
+        }
+        case ast::Kind::Rg: {
+            const auto& x = static_cast<const ast::RgExpr&>(*expression);
+            return std::make_shared<RgObservable>(resolve(x.selection), topology.bonds(),
+                                                  x.mass_weighted ? topology.masses_da() : std::vector<double>{});
+        }
         default: throw std::logic_error("Expression is not an observable");
     }
 }
