@@ -28,12 +28,28 @@ Events are maximal contiguous intervals over which a frame predicate is true. Te
 
 ## Quick start
 
-Build and test the native core:
+Build and test the dependency-free native core:
 
 ```bash
 cmake -S . -B build -DENSEMBLEQL_BUILD_PYTHON=OFF
 cmake --build build -j
 ctest --test-dir build --output-on-failure
+```
+
+Enable XTC, TRR, and DCD through an installed chemfiles library, or fetch the pinned stable release during configuration:
+
+```bash
+cmake -S . -B build -DENSEMBLEQL_FETCH_CHEMFILES=ON
+cmake --build build -j
+```
+
+Use `-DENSEMBLEQL_REQUIRE_CHEMFILES=ON` when configuration should fail rather than produce an XYZ-only build. Python exposes `eql.chemfiles_backend_available()` for capability checks.
+
+To include the backend in an editable Python installation:
+
+```bash
+CMAKE_ARGS="-DENSEMBLEQL_FETCH_CHEMFILES=ON -DENSEMBLEQL_REQUIRE_CHEMFILES=ON" \
+  python -m pip install -e .
 ```
 
 For the Python package (Python 3.11+), install into an isolated environment. The build installs its pybind11/scikit-build dependencies:
@@ -119,13 +135,13 @@ The explanation reports resolved selection expressions, canonical deduplicated o
 
 ## Architecture
 
-Public headers separate trajectory/topology I/O, selections, geometry, observables, event extraction, interval algebra, AST parsing, planning, and execution. `FrameReader` is the backend-neutral streaming interface; future XTC/TRR/DCD readers can implement it without changing query execution. Observable classes are likewise independent of the parser.
+Public headers separate trajectory/topology I/O, selections, geometry, observables, event extraction, interval algebra, AST parsing, planning, and execution. `FrameReader` is the backend-neutral streaming interface used by both the built-in XYZ reader and the optional Chemfiles XTC/TRR/DCD adapter. Observable classes are likewise independent of the parser.
 
 The straightforward contact kernel is currently O(N×M). Its stable API permits cell lists, spatial hashing, neighbor lists, SIMD, or OpenMP underneath it. Other intended extension points are parallel frame evaluation, thread pools, memory-mapped or compressed trajectory readers, and query-plan caching. See [ROADMAP.md](ROADMAP.md).
 
 ## Current limitations
 
-Only PDB topology metadata and XYZ trajectories are supported. Periodic geometry is limited to orthorhombic minimum-image distance/contact calculations; there is no triclinic support, molecule unwrapping, mass-weighted RG, compressed trajectory reader, or user-configurable default timestep yet. Event intervals use sampled timestamps and therefore do not infer behavior between frames. `AND`/`OR` combine frame predicates; temporal relations operate on extracted intervals.
+PDB supplies topology metadata. XYZ is always supported; XTC, TRR, and DCD are available through the optional chemfiles backend. Chemfiles coordinates and cell lengths are converted from angstroms to nm, while its trajectory `time` property is already interpreted as ps. Periodic geometry is limited to orthorhombic minimum-image distance/contact calculations; there is no triclinic support, molecule unwrapping, mass-weighted RG, or user-configurable default timestep yet. Event intervals use sampled timestamps and therefore do not infer behavior between frames. `AND`/`OR` combine frame predicates; temporal relations operate on extracted intervals.
 
 ## Development
 

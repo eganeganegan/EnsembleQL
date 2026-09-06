@@ -37,3 +37,19 @@ jobs:
         run: cmake -S . -B build -DENSEMBLEQL_BUILD_PYTHON=OFF -DENSEMBLEQL_BUILD_TESTS=ON -DENSEMBLEQL_WARNINGS_AS_ERRORS=ON
       - name: Build
         run: cmake --build build --parallel
+
+  chemfiles-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure with chemfiles
+        run: >-
+          cmake -S . -B build
+          -DENSEMBLEQL_BUILD_PYTHON=OFF
+          -DENSEMBLEQL_BUILD_TESTS=ON
+          -DENSEMBLEQL_FETCH_CHEMFILES=ON
+          -DENSEMBLEQL_REQUIRE_CHEMFILES=ON
+      - name: Build optional backend
+        run: cmake --build build --parallel 2
+      - name: Test
+        run: ctest --test-dir build --output-on-failure

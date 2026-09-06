@@ -1,6 +1,8 @@
 #include "ensembleql/trajectory.hpp"
 #include "ensembleql/units.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <cmath>
 #include <optional>
@@ -63,6 +65,14 @@ std::optional<Vec3> parse_box(const std::string& comment) {
 }
 } // namespace
 
+bool chemfiles_backend_available() noexcept {
+#ifdef ENSEMBLEQL_HAS_CHEMFILES
+    return true;
+#else
+    return false;
+#endif
+}
+
 XYZReader::XYZReader(std::string path, std::size_t expected_atoms, double default_step_ps)
     : path_(std::move(path)), expected_atoms_(expected_atoms), default_step_ps_(default_step_ps) { reset(); }
 
@@ -117,10 +127,24 @@ Trajectory::Trajectory(Topology topology, std::shared_ptr<FrameReader> reader)
 Trajectory Trajectory::from_files(const std::string& trajectory_path, const std::string& topology_path) {
     Topology topology = Topology::from_pdb(topology_path);
     std::string extension = std::filesystem::path(trajectory_path).extension().string();
-    if (extension != ".xyz" && extension != ".XYZ") {
-        throw std::runtime_error("Unsupported trajectory format '" + extension + "'; currently supported: XYZ");
+    std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+    });
+    std::shared_ptr<FrameReader> reader;
+    if (extension == ".xyz") {
+        reader = std::make_shared<XYZReader>(trajectory_path, topology.size());
+    } else if (extension == ".xtc" || extension == ".trr" || extension == ".dcd") {
+#ifdef ENSEMBLEQL_HAS_CHEMFILES
+        reader = std::make_shared<ChemfilesReader>(trajectory_path, topology.size());
+#else
+        throw std::runtime_error("Trajectory format '" + extension +
+                                 "' requires the optional chemfiles backend; configure with "
+                                 "-DENSEMBLEQL_FETCH_CHEMFILES=ON or install chemfiles >= 0.10");
+#endif
+    } else {
+        throw std::runtime_error("Unsupported trajectory format '" + extension +
+                                 "'; supported: XYZ, and XTC/TRR/DCD with chemfiles");
     }
-    auto reader = std::make_shared<XYZReader>(trajectory_path, topology.size());
     return Trajectory(std::move(topology), std::move(reader));
 }
 

@@ -40,6 +40,25 @@ private:
     std::ifstream stream_;
 };
 
+#ifdef ENSEMBLEQL_HAS_CHEMFILES
+class ChemfilesReader final : public FrameReader {
+public:
+    ChemfilesReader(std::string path, std::size_t expected_atoms, double default_step_ps = 1.0);
+    ~ChemfilesReader() override;
+    ChemfilesReader(const ChemfilesReader&) = delete;
+    ChemfilesReader& operator=(const ChemfilesReader&) = delete;
+    ChemfilesReader(ChemfilesReader&&) noexcept;
+    ChemfilesReader& operator=(ChemfilesReader&&) noexcept;
+    bool next(Frame& frame) override;
+    void reset() override;
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+#endif
+
+bool chemfiles_backend_available() noexcept;
+
 class Trajectory {
 public:
     Trajectory(Topology topology, std::shared_ptr<FrameReader> reader);

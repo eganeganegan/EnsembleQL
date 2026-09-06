@@ -75,6 +75,15 @@ void test_io_and_selections() {
     check(reader.next(frame) && frame.coordinates.size() == 3, "XYZ first frame");
     check(close(frame.coordinates[1][0], 0.3), "XYZ angstrom to nm");
     check(reader.next(frame) && close(frame.time_ps, 1000.0), "XYZ explicit time");
+#ifdef ENSEMBLEQL_HAS_CHEMFILES
+    check(chemfiles_backend_available(), "chemfiles availability flag enabled");
+#else
+    check(!chemfiles_backend_available(), "chemfiles availability flag disabled");
+    check_throws([&] {
+        (void)Trajectory::from_files(root + "/tests/data/missing.xtc",
+                                     root + "/examples/idr_contact_switching/switching.pdb");
+    }, "compressed format reports missing optional backend");
+#endif
 
     const auto model = simple_topology();
     check(Selection("resid 17").resolve(model).size() == 2, "resid selection");

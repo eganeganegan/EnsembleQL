@@ -75,3 +75,7 @@ def test_periodic_rg_requires_unwrapping():
     trajectory = eql.load(PBC_DATA / "pbc.xyz", topology=PBC_DATA / "pbc.pdb")
     with pytest.raises(RuntimeError, match="requires molecule unwrapping"):
         trajectory.query("FIND RG(protein) < 1nm;")
+
+
+def test_chemfiles_capability_is_discoverable():
+    assert isinstance(eql.chemfiles_backend_available(), bool)
