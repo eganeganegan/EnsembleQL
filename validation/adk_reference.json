@@ -1,0 +1,644 @@
+{
+  "schema_version": 1,
+  "dataset": {
+    "name": "adenylate kinase DIMS closed-to-open transition",
+    "source_package": "MDAnalysisTests",
+    "source_version": "2.10.0",
+    "source_files": {
+      "adk.psf": "96cec916c4b5b19a7acb91bd1e672fb9c8b032aee1e7f0868a50655902c9b5b8",
+      "adk_dims.dcd": "859a5bd9e7de45a0f2401f7971c5ffc296168e7c23f6f65382bde7c1686c19f1"
+    },
+    "citation_doi": "10.1016/j.jmb.2009.09.009",
+    "frame_count": 98,
+    "frame_spacing_ps": 1.0,
+    "atom_count": 3341
+  },
+  "reference_software": {
+    "MDAnalysis": "2.10.0",
+    "MDTraj": "1.11.1.post2",
+    "NumPy": "2.4.6"
+  },
+  "prepared_files": {
+    "topology.pdb": "7bca72a84d8606d1091e2d9cb632563210db16d00afe73ec77f8c73dcb945ea6",
+    "trajectory.dcd": "859a5bd9e7de45a0f2401f7971c5ffc296168e7c23f6f65382bde7c1686c19f1",
+    "trajectory.xtc": "aa7b9a6e70b5b13719d60193ad5773330e4df851f173d4129a4de9a46b11ad4f"
+  },
+  "checks": [
+    {
+      "id": "distance_resid_1_ca_resid_2_ca_lt_0_38_nm",
+      "observable": "DISTANCE",
+      "reference_implementation": "NumPy Euclidean norm over MDAnalysis coordinates",
+      "query": "FIND DISTANCE(resid 1 and name CA, resid 2 and name CA) < 0.38nm;",
+      "threshold": {
+        "comparison": "<",
+        "value": 0.38,
+        "unit": "nm"
+      },
+      "matching_frame_count": 22,
+      "event_count": 18,
+      "intervals_ps": [
+        [
+          2.0,
+          2.0
+        ],
+        [
+          4.0,
+          4.0
+        ],
+        [
+          7.0,
+          7.0
+        ],
+        [
+          9.0,
+          9.0
+        ],
+        [
+          11.0,
+          14.0
+        ],
+        [
+          19.0,
+          19.0
+        ],
+        [
+          23.0,
+          23.0
+        ],
+        [
+          29.0,
+          29.0
+        ],
+        [
+          32.0,
+          32.0
+        ],
+        [
+          46.0,
+          46.0
+        ],
+        [
+          53.0,
+          53.0
+        ],
+        [
+          64.0,
+          64.0
+        ],
+        [
+          67.0,
+          67.0
+        ],
+        [
+          77.0,
+          77.0
+        ],
+        [
+          79.0,
+          79.0
+        ],
+        [
+          85.0,
+          85.0
+        ],
+        [
+          89.0,
+          90.0
+        ],
+        [
+          92.0,
+          92.0
+        ]
+      ],
+      "time_tolerance_ps": 0.0001
+    },
+    {
+      "id": "contact_residue_regions_le_0_45_nm",
+      "observable": "CONTACT",
+      "reference_implementation": "MDAnalysis.lib.distances.distance_array minimum",
+      "query": "FIND CONTACT(resid 30:59, resid 120:159, cutoff=0.45nm);",
+      "threshold": {
+        "comparison": "<=",
+        "value": 0.45,
+        "unit": "nm"
+      },
+      "matching_frame_count": 64,
+      "event_count": 1,
+      "intervals_ps": [
+        [
+          1.0,
+          64.0
+        ]
+      ],
+      "time_tolerance_ps": 0.0001
+    },
+    {
+      "id": "atom_contact_count_ge_100",
+      "observable": "CONTACT_COUNT",
+      "reference_implementation": "NumPy count over an MDAnalysis pair-distance matrix",
+      "query": "FIND CONTACT_COUNT(resid 30:59, resid 120:159, cutoff=0.45nm, mode=atom) >= 100;",
+      "mode": "atom",
+      "threshold": {
+        "comparison": ">=",
+        "value": 100,
+        "unit": "count"
+      },
+      "matching_frame_count": 36,
+      "event_count": 1,
+      "intervals_ps": [
+        [
+          1.0,
+          36.0
+        ]
+      ],
+      "time_tolerance_ps": 0.0001
+    },
+    {
+      "id": "residue_contact_count_ge_5",
+      "observable": "CONTACT_COUNT",
+      "reference_implementation": "Python unique residue pairs from an MDAnalysis pair-distance matrix",
+      "query": "FIND CONTACT_COUNT(resid 30:59, resid 120:159, cutoff=0.45nm, mode=residue) >= 5;",
+      "mode": "residue",
+      "threshold": {
+        "comparison": ">=",
+        "value": 5,
+        "unit": "count"
+      },
+      "matching_frame_count": 38,
+      "event_count": 1,
+      "intervals_ps": [
+        [
+          1.0,
+          38.0
+        ]
+      ],
+      "time_tolerance_ps": 0.0001
+    },
+    {
+      "id": "unweighted_rg_protein_lt_1_855_nm",
+      "observable": "RG",
+      "reference_implementation": "NumPy geometric-centroid radius of gyration",
+      "query": "FIND RG(protein) < 1.855nm;",
+      "mass_weighted": false,
+      "threshold": {
+        "comparison": "<",
+        "value": 1.855,
+        "unit": "nm"
+      },
+      "matching_frame_count": 54,
+      "event_count": 1,
+      "intervals_ps": [
+        [
+          1.0,
+          54.0
+        ]
+      ],
+      "time_tolerance_ps": 0.0001
+    },
+    {
+      "id": "mass_weighted_rg_protein_lt_1_855_nm",
+      "observable": "RG",
+      "reference_implementation": "NumPy mass-weighted radius of gyration using MDAnalysis masses",
+      "query": "FIND RG(protein, mass_weighted=true) < 1.855nm;",
+      "mass_weighted": true,
+      "threshold": {
+        "comparison": "<",
+        "value": 1.855,
+        "unit": "nm"
+      },
+      "matching_frame_count": 54,
+      "event_count": 1,
+      "intervals_ps": [
+        [
+          1.0,
+          54.0
+        ]
+      ],
+      "time_tolerance_ps": 0.0001
+    },
+    {
+      "id": "hbond_resid_146_n_resid_151_o",
+      "observable": "HBOND",
+      "reference_implementation": "MDAnalysis HydrogenBondAnalysis 3.5 A / 150 degree criteria",
+      "query": "FIND HBOND(resid 146 and name N, resid 151 and name O);",
+      "threshold": {
+        "distance": 0.35,
+        "distance_unit": "nm",
+        "minimum_angle": 150.0,
+        "angle_unit": "degree"
+      },
+      "matching_frame_count": 52,
+      "event_count": 27,
+      "intervals_ps": [
+        [
+          1.0,
+          1.0
+        ],
+        [
+          3.0,
+          8.0
+        ],
+        [
+          11.0,
+          12.0
+        ],
+        [
+          17.0,
+          17.0
+        ],
+        [
+          19.0,
+          24.0
+        ],
+        [
+          26.0,
+          26.0
+        ],
+        [
+          28.0,
+          28.0
+        ],
+        [
+          30.0,
+          30.0
+        ],
+        [
+          33.0,
+          33.0
+        ],
+        [
+          35.0,
+          35.0
+        ],
+        [
+          37.0,
+          37.0
+        ],
+        [
+          41.0,
+          42.0
+        ],
+        [
+          44.0,
+          44.0
+        ],
+        [
+          47.0,
+          47.0
+        ],
+        [
+          50.0,
+          50.0
+        ],
+        [
+          53.0,
+          53.0
+        ],
+        [
+          56.0,
+          56.0
+        ],
+        [
+          60.0,
+          60.0
+        ],
+        [
+          66.0,
+          70.0
+        ],
+        [
+          72.0,
+          72.0
+        ],
+        [
+          74.0,
+          75.0
+        ],
+        [
+          77.0,
+          78.0
+        ],
+        [
+          81.0,
+          82.0
+        ],
+        [
+          84.0,
+          89.0
+        ],
+        [
+          91.0,
+          91.0
+        ],
+        [
+          94.0,
+          94.0
+        ],
+        [
+          97.0,
+          98.0
+        ]
+      ],
+      "time_tolerance_ps": 0.0001
+    },
+    {
+      "id": "residue_50_phi_lt_minus_90_deg",
+      "observable": "DIHEDRAL",
+      "reference_implementation": "MDAnalysis.lib.distances.calc_dihedrals",
+      "query": "FIND DIHEDRAL(resid 49 and name C, resid 50 and name N, resid 50 and name CA, resid 50 and name C) < -90deg;",
+      "threshold": {
+        "comparison": "<",
+        "value": -90.0,
+        "unit": "degree"
+      },
+      "matching_frame_count": 8,
+      "event_count": 6,
+      "intervals_ps": [
+        [
+          2.0,
+          2.0
+        ],
+        [
+          4.0,
+          5.0
+        ],
+        [
+          56.0,
+          57.0
+        ],
+        [
+          59.0,
+          59.0
+        ],
+        [
+          62.0,
+          62.0
+        ],
+        [
+          66.0,
+          66.0
+        ]
+      ],
+      "time_tolerance_ps": 0.0001
+    },
+    {
+      "id": "protein_helix_fraction_ge_0_54",
+      "observable": "HELIX",
+      "reference_implementation": "MDAnalysis dihedrals classified with EnsembleQL's documented phi/psi windows",
+      "query": "FIND HELIX(protein, minimum_fraction=0.54);",
+      "threshold": {
+        "comparison": ">=",
+        "value": 0.54,
+        "unit": "fraction"
+      },
+      "matching_frame_count": 3,
+      "event_count": 1,
+      "intervals_ps": [
+        [
+          96.0,
+          98.0
+        ]
+      ],
+      "time_tolerance_ps": 0.0001
+    },
+    {
+      "id": "residue_197_od2_sasa_gt_0_1_nm2",
+      "observable": "SASA",
+      "reference_implementation": "MDTraj Shrake-Rupley with 0.14 nm probe and 96 sphere points",
+      "query": "FIND SASA(resid 197 and name OD2, probe=0.14nm, points=96) > 0.1nm2;",
+      "threshold": {
+        "comparison": ">",
+        "value": 0.1,
+        "unit": "nm2"
+      },
+      "matching_frame_count": 8,
+      "event_count": 1,
+      "intervals_ps": [
+        [
+          1.0,
+          8.0
+        ]
+      ],
+      "time_tolerance_ps": 0.0001
+    },
+    {
+      "id": "fitted_ca_rmsd_lt_0_49_nm",
+      "observable": "RMSD",
+      "reference_implementation": "MDAnalysis.analysis.rms.rmsd with centering and superposition",
+      "query": "FIND RMSD(protein and name CA) < 0.49nm;",
+      "align": true,
+      "threshold": {
+        "comparison": "<",
+        "value": 0.49,
+        "unit": "nm"
+      },
+      "matching_frame_count": 52,
+      "event_count": 1,
+      "intervals_ps": [
+        [
+          1.0,
+          52.0
+        ]
+      ],
+      "time_tolerance_ps": 0.0001
+    },
+    {
+      "id": "raw_protein_rmsd_lt_0_49_nm",
+      "observable": "RMSD",
+      "reference_implementation": "MDAnalysis.analysis.rms.rmsd without centering or superposition",
+      "query": "FIND RMSD(protein, align=false) < 0.49nm;",
+      "align": false,
+      "threshold": {
+        "comparison": "<",
+        "value": 0.49,
+        "unit": "nm"
+      },
+      "matching_frame_count": 50,
+      "event_count": 1,
+      "intervals_ps": [
+        [
+          1.0,
+          50.0
+        ]
+      ],
+      "time_tolerance_ps": 0.0001
+    },
+    {
+      "id": "coordination_number_ge_0_25",
+      "observable": "COORDINATION_NUMBER",
+      "reference_implementation": "NumPy contact count divided by MDAnalysis center selection size",
+      "query": "FIND COORDINATION_NUMBER(resid 30:59, resid 120:159, cutoff=0.45nm) >= 0.25;",
+      "threshold": {
+        "comparison": ">=",
+        "value": 0.25,
+        "unit": "dimensionless"
+      },
+      "matching_frame_count": 35,
+      "event_count": 1,
+      "intervals_ps": [
+        [
+          1.0,
+          35.0
+        ]
+      ],
+      "time_tolerance_ps": 0.0001
+    },
+    {
+      "id": "salt_bridge_resid_78_nh2_resid_79_od1",
+      "observable": "SALT_BRIDGE",
+      "reference_implementation": "NumPy Euclidean norm over MDAnalysis coordinates",
+      "query": "FIND SALT_BRIDGE(resid 78 and name NH2, resid 79 and name OD1);",
+      "threshold": {
+        "comparison": "<=",
+        "value": 0.4,
+        "unit": "nm"
+      },
+      "matching_frame_count": 54,
+      "event_count": 20,
+      "intervals_ps": [
+        [
+          2.0,
+          9.0
+        ],
+        [
+          12.0,
+          15.0
+        ],
+        [
+          19.0,
+          20.0
+        ],
+        [
+          24.0,
+          25.0
+        ],
+        [
+          27.0,
+          27.0
+        ],
+        [
+          29.0,
+          29.0
+        ],
+        [
+          31.0,
+          32.0
+        ],
+        [
+          36.0,
+          36.0
+        ],
+        [
+          39.0,
+          42.0
+        ],
+        [
+          44.0,
+          48.0
+        ],
+        [
+          50.0,
+          54.0
+        ],
+        [
+          56.0,
+          60.0
+        ],
+        [
+          62.0,
+          66.0
+        ],
+        [
+          68.0,
+          69.0
+        ],
+        [
+          73.0,
+          73.0
+        ],
+        [
+          75.0,
+          75.0
+        ],
+        [
+          77.0,
+          78.0
+        ],
+        [
+          80.0,
+          80.0
+        ],
+        [
+          86.0,
+          86.0
+        ],
+        [
+          89.0,
+          89.0
+        ]
+      ],
+      "time_tolerance_ps": 0.0001
+    },
+    {
+      "id": "tyr_181_182_parallel_aromatic_stacking",
+      "observable": "AROMATIC_STACKING",
+      "reference_implementation": "NumPy centroid distance and unoriented cross-product normal angle",
+      "query": "FIND AROMATIC_STACKING(resid 181 and (name CG or name CD1 or name CD2), resid 182 and (name CG or name CD1 or name CD2), distance=0.56nm, max_angle=60deg);",
+      "threshold": {
+        "maximum_distance": 0.56,
+        "distance_unit": "nm",
+        "maximum_angle": 60.0,
+        "angle_unit": "degree"
+      },
+      "matching_frame_count": 14,
+      "event_count": 11,
+      "intervals_ps": [
+        [
+          1.0,
+          2.0
+        ],
+        [
+          4.0,
+          4.0
+        ],
+        [
+          22.0,
+          23.0
+        ],
+        [
+          27.0,
+          28.0
+        ],
+        [
+          30.0,
+          30.0
+        ],
+        [
+          36.0,
+          36.0
+        ],
+        [
+          52.0,
+          52.0
+        ],
+        [
+          65.0,
+          65.0
+        ],
+        [
+          75.0,
+          75.0
+        ],
+        [
+          79.0,
+          79.0
+        ],
+        [
+          89.0,
+          89.0
+        ]
+      ],
+      "time_tolerance_ps": 0.0001
+    }
+  ]
+}

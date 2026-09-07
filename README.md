@@ -171,4 +171,6 @@ PDB supplies topology metadata, element-derived standard atomic weights, and exp
 
 The native target compiles with `-Wall -Wextra -Wpedantic`; CI additionally enables `ENSEMBLEQL_WARNINGS_AS_ERRORS`. Enable microbenchmarks with `-DENSEMBLEQL_BUILD_BENCHMARKS=ON`. The synthetic benchmarks compare optimized and pairwise contact detection at increasing atom counts, exercise neighbor-list reuse and triclinic hashing, report boolean-contact early-exit time, and cover streaming event extraction and temporal joins.
 
+The [scientific-validation suite](validation/README.md) compares every observable family with pinned MDAnalysis, MDTraj, or NumPy calculations on published AdK and membrane/peptide trajectories. Its machine-readable manifests record provenance, checksums, thresholds, tolerances, and expected event intervals; the large generated fixtures remain outside Git.
+
 Contributions should preserve scientific definitions, add boundary-condition tests, and keep file-format backends independent from the engine.

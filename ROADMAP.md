@@ -30,8 +30,8 @@ The implemented surface selections, distance/orientation observables, PBC-aware 
 
 Auditable executable fixtures now cover both application families: `examples/idr_contact_switching` exercises switching, recurrence, and event-graph analysis, while `examples/peptide_surface_adsorption` composes approach, contact, reorientation, and duration-qualified adsorption under PBC. Their synthetic cutoffs are semantic examples, not scientific defaults.
 
-## Next validation milestones
+## Validation and release milestones
 
-1. Validate every observable against independent reference implementations on published, versioned trajectories and publish tolerances plus provenance.
-2. Ship reproducible Linux and macOS wheels, a versioned scientific-method manifest, and release-level compatibility tests across supported trajectory formats.
+1. **Completed:** validate every observable family against independent reference implementations on published, versioned trajectories and record thresholds, tolerances, checksums, and provenance in machine-readable manifests.
+2. Ship reproducible Linux and macOS wheels and release-level compatibility tests across supported trajectory formats.
 3. Profile production IDR and slab workloads, then add bounded-memory parallel frame scheduling or accelerator kernels only where measurements show a durable gain.

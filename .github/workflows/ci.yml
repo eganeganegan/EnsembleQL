@@ -53,3 +53,32 @@ jobs:
         run: cmake --build build --parallel 2
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  scientific-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - uses: actions/cache@v4
+        with:
+          path: validation/data
+          key: scientific-validation-v1
+      - name: Build Python package with Chemfiles and install validators
+        env:
+          CMAKE_ARGS: >-
+            -DENSEMBLEQL_FETCH_CHEMFILES=ON
+            -DENSEMBLEQL_REQUIRE_CHEMFILES=ON
+        run: python -m pip install -e '.[test,validation]'
+      - name: Prepare pinned published trajectories
+        run: |
+          python validation/prepare_adk.py
+          python validation/prepare_membrane_peptide.py --download
+      - name: Verify independent reference manifests
+        run: |
+          python validation/generate_adk_reference.py --check
+          python validation/generate_membrane_peptide_reference.py --check
+      - name: Compare EnsembleQL events with independent references
+        run: python -m pytest -q tests/python/test_scientific_validation.py

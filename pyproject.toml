@@ -21,6 +21,12 @@ classifiers = [
 [project.optional-dependencies]
 dataframe = ["pandas>=2"]
 test = ["pytest>=8"]
+validation = [
+  "MDAnalysis==2.10.0",
+  "MDAnalysisTests==2.10.0",
+  "mdtraj==1.11.1.post2",
+  "numpy==2.4.6",
+]
 
 [project.scripts]
 ensembleql = "ensembleql.cli:main"

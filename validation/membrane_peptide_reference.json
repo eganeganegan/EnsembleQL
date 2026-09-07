@@ -1,0 +1,158 @@
+{
+  "schema_version": 1,
+  "dataset": {
+    "name": "peptide in a pure DMPC membrane",
+    "source": "MDAnalysisData membrane_peptide",
+    "source_url": "https://figshare.com/articles/dataset/Molecular_dynamics_trajectory_for_membrane_peptide_tutorial/8046437",
+    "citation_doi": "10.6084/m9.figshare.8046437",
+    "license": "CC BY 4.0",
+    "source_files": {
+      "source.tpr": "677a3ae55e35c24f37f2610eafa92d19285d1774731d6ffb9a99dfde39b8c437",
+      "source.xtc": "f9bdfee4e1aa69ccfeef21cb74703202f6728f514543c4125382bd5250773eb7"
+    },
+    "derivation": "protein plus DMPC phosphorus atoms; every tenth source frame",
+    "frame_count": 101,
+    "frame_spacing_ps": 100.0,
+    "atom_count": 325
+  },
+  "reference_software": {
+    "MDAnalysis": "2.10.0",
+    "NumPy": "2.4.6"
+  },
+  "prepared_files": {
+    "topology.pdb": "6ce495ffbbf3db724c0b58926a32105160271c68feb672c4259864a50af05775",
+    "trajectory.xtc": "b3f5482f8029abbd9f85ddf33ff48e1e6c72cd2bbc4460227fe120beb056ee95"
+  },
+  "checks": [
+    {
+      "id": "peptide_surface_distance_lt_0_281_nm",
+      "observable": "SURFACE_DISTANCE",
+      "reference_implementation": "minimum MDAnalysis.lib.distances.distance_array value with the per-frame periodic cell",
+      "query": "FIND SURFACE_DISTANCE(chain P, chain M and name P) < 0.281nm;",
+      "threshold": {
+        "comparison": "<",
+        "value": 0.281,
+        "unit": "nm"
+      },
+      "minimum_threshold_clearance": 0.0007555718580212201,
+      "matching_frame_count": 17,
+      "event_count": 11,
+      "intervals_ps": [
+        [
+          300.0,
+          400.0
+        ],
+        [
+          900.0,
+          900.0
+        ],
+        [
+          1500.0,
+          1600.0
+        ],
+        [
+          2500.0,
+          2500.0
+        ],
+        [
+          3400.0,
+          3400.0
+        ],
+        [
+          3800.0,
+          3800.0
+        ],
+        [
+          4600.0,
+          4600.0
+        ],
+        [
+          8500.0,
+          8500.0
+        ],
+        [
+          9000.0,
+          9400.0
+        ],
+        [
+          9600.0,
+          9600.0
+        ],
+        [
+          9800.0,
+          9800.0
+        ]
+      ],
+      "time_tolerance_ps": 0.001
+    },
+    {
+      "id": "peptide_end_to_end_orientation_lt_30_deg",
+      "observable": "ORIENTATION",
+      "reference_implementation": "MDAnalysis.lib.distances.minimize_vectors followed by a NumPy unoriented angle to Cartesian z",
+      "query": "FIND ORIENTATION(chain P and resid 1 and name CA, chain P and resid 19 and name CA, axis=z) < 30deg;",
+      "threshold": {
+        "comparison": "<",
+        "value": 30.0,
+        "unit": "degree"
+      },
+      "minimum_threshold_clearance": 0.01646663338689791,
+      "matching_frame_count": 47,
+      "event_count": 13,
+      "intervals_ps": [
+        [
+          0.0,
+          1900.0
+        ],
+        [
+          2300.0,
+          2300.0
+        ],
+        [
+          3600.0,
+          3600.0
+        ],
+        [
+          4200.0,
+          4800.0
+        ],
+        [
+          5000.0,
+          5100.0
+        ],
+        [
+          5300.0,
+          5700.0
+        ],
+        [
+          6300.0,
+          6600.0
+        ],
+        [
+          8200.0,
+          8200.0
+        ],
+        [
+          8400.0,
+          8400.0
+        ],
+        [
+          8600.0,
+          8600.0
+        ],
+        [
+          8900.0,
+          9000.0
+        ],
+        [
+          9300.0,
+          9300.0
+        ],
+        [
+          10000.0,
+          10000.0
+        ]
+      ],
+      "time_tolerance_ps": 0.001
+    }
+  ]
+}

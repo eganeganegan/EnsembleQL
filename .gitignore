@@ -7,3 +7,4 @@ __pycache__/
 *.dylib
 *.egg-info/
 dist/
+validation/data/
