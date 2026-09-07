@@ -1,8 +1,23 @@
 # Periodic-boundary conventions
 
-EnsembleQL stores a periodic cell as three Cartesian lattice vectors `a`, `b`, and `c` in nm. Orthorhombic boxes are represented by diagonal vectors; triclinic cells retain their off-diagonal components.
+EnsembleQL stores a periodic cell as three Cartesian lattice vectors $\mathbf{a}$, $\mathbf{b}$, and $\mathbf{c}$ in nm. These are the columns of the cell matrix $\mathbf{H}=[\mathbf{a}\ \mathbf{b}\ \mathbf{c}]$. Orthorhombic boxes are represented by diagonal vectors; triclinic cells retain their off-diagonal components.
 
-For a Cartesian displacement `d`, EnsembleQL converts `d` to fractional coordinates using the inverse cell matrix. It rounds to a nearby lattice translation, evaluates that translation and its 26 immediate neighbors, and selects the Cartesian image with the smallest Euclidean norm. `DISTANCE`, `CONTACT`, and `CONTACT_COUNT` apply this nearest-image search automatically whenever a frame declares a cell. Coordinates do not need to be wrapped into the primary cell.
+For a Cartesian displacement $\mathbf{d}$, EnsembleQL computes the fractional displacement $\mathbf{s}=\mathbf{H}^{-1}\mathbf{d}$. It rounds $\mathbf{s}$ to a nearby integer lattice translation $\mathbf{n}$, evaluates that translation and its 26 immediate neighbors, and selects the image
+
+$$
+\begin{aligned}
+\mathcal{C}(\mathbf{s})
+  &= \left\{\operatorname{round}(\mathbf{s})+\boldsymbol{\delta}
+     \;\middle|\; \boldsymbol{\delta}\in\{-1,0,1\}^3\right\}, \\
+\mathbf{n}^{\star}
+  &= \underset{\mathbf{n}\in\mathcal{C}(\mathbf{s})}{\operatorname{arg\,min}}
+     \left\lVert \mathbf{d}-\mathbf{H}\mathbf{n} \right\rVert, \\
+\mathbf{d}_{\mathrm{MI}}
+  &= \mathbf{d}-\mathbf{H}\mathbf{n}^{\star}.
+\end{aligned}
+$$
+
+`DISTANCE`, `CONTACT`, and `CONTACT_COUNT` apply this nearest-image search automatically whenever a frame declares a cell. Coordinates do not need to be wrapped into the primary cell.
 
 ## XYZ metadata
 

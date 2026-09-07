@@ -10,9 +10,11 @@ Frame times are finite values in ps and must be strictly increasing. Irregular s
 
 A frame predicate produces an event for each maximal contiguous run of true samples. An event starts at the first true sample and ends at the last true sample. Its observed duration is:
 
-```text
-duration = last_true_sample_time - first_true_sample_time
-```
+$$
+\Delta t_{\mathrm{event}}
+= t_{\mathrm{last\ true\ sample}}
+- t_{\mathrm{first\ true\ sample}}.
+$$
 
 Consequently, a one-sample event has zero observed duration. EnsembleQL does not extend it to the next frame or infer how long it remained true after sampling. On irregularly sampled data, `FOR >= 10ps` compares 10 ps against this observed span—not against a frame count.
 
