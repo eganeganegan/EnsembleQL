@@ -10,6 +10,13 @@ option(ENSEMBLEQL_ENABLE_CHEMFILES "Enable chemfiles trajectory backends when av
 option(ENSEMBLEQL_FETCH_CHEMFILES "Fetch chemfiles 0.10.4 when it is not installed" OFF)
 option(ENSEMBLEQL_REQUIRE_CHEMFILES "Fail configuration when chemfiles is unavailable" OFF)
 
+# The native core and any fetched static dependencies can be linked into the
+# Python extension. Set this before creating targets (including FetchContent
+# targets) so Linux builds compile every contributing object as PIC.
+if(ENSEMBLEQL_BUILD_PYTHON)
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
+
 add_library(ensembleql_core
     cpp/src/units.cpp
     cpp/src/topology.cpp
