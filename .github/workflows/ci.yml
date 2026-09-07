@@ -18,6 +18,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+      - name: Verify public version metadata
+        run: python tools/check_release.py
       - name: Configure native core
         run: cmake -S . -B build -DENSEMBLEQL_BUILD_PYTHON=OFF -DENSEMBLEQL_BUILD_TESTS=ON
       - name: Build native core

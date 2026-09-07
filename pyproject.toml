@@ -1,5 +1,5 @@
 [build-system]
-requires = ["scikit-build-core>=0.10", "pybind11>=2.12"]
+requires = ["scikit-build-core==1.0.3", "pybind11==3.1.0"]
 build-backend = "scikit_build_core.build"
 
 [project]
@@ -10,13 +10,33 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = {file = "LICENSE"}
 authors = [{name = "Anthony Egan"}]
+keywords = [
+  "molecular-dynamics",
+  "computational-chemistry",
+  "trajectory-analysis",
+  "temporal-query",
+]
 classifiers = [
   "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
   "License :: OSI Approved :: MIT License",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
   "Programming Language :: C++",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering :: Chemistry",
 ]
+
+[project.urls]
+Homepage = "https://github.com/eganeganegan/EnsembleQL"
+Documentation = "https://github.com/eganeganegan/EnsembleQL#readme"
+Repository = "https://github.com/eganeganegan/EnsembleQL.git"
+Issues = "https://github.com/eganeganegan/EnsembleQL/issues"
+Changelog = "https://github.com/eganeganegan/EnsembleQL/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dataframe = ["pandas>=2"]
@@ -33,8 +53,19 @@ ensembleql = "ensembleql.cli:main"
 
 [tool.scikit-build]
 cmake.build-type = "Release"
+cmake.args = ["-DENSEMBLEQL_BUILD_TESTS=OFF"]
+install.components = ["python"]
 wheel.packages = ["python/ensembleql"]
+wheel.reproducible = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
 pythonpath = ["python"]
+
+[tool.cibuildwheel]
+build = "cp{311,312,313,314}-*"
+skip = ["*-musllinux_*", "cp314t-*"]
+build-verbosity = 1
+environment = { CMAKE_ARGS = "-DENSEMBLEQL_FETCH_CHEMFILES=ON -DENSEMBLEQL_REQUIRE_CHEMFILES=ON" }
+test-requires = ["pytest>=8"]
+test-command = "python {project}/tools/smoke_test_install.py && python -m pytest -q {project}/tests/python/test_api.py {project}/tests/python/test_cli.py"

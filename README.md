@@ -28,6 +28,14 @@ Events are maximal contiguous intervals over which a frame predicate is true. Te
 
 ## Quick start
 
+Install a released Linux or macOS wheel from PyPI:
+
+```bash
+python -m pip install ensembleql
+```
+
+Release wheels include the Chemfiles backend. The commands below build from a source checkout.
+
 Build and test the dependency-free native core:
 
 ```bash
@@ -77,7 +85,7 @@ events = traj.query("""
 print(events)
 ```
 
-Two end-to-end research fixtures are included: [IDR contact switching](examples/idr_contact_switching) and a [peptide–surface adsorption mechanism](examples/peptide_surface_adsorption). Both are intentionally small enough to audit frame by frame; they demonstrate query semantics rather than supply physical cutoff recommendations.
+Two end-to-end research fixtures are included: [IDR contact switching](https://github.com/eganeganegan/EnsembleQL/tree/main/examples/idr_contact_switching) and a [peptide–surface adsorption mechanism](https://github.com/eganeganegan/EnsembleQL/tree/main/examples/peptide_surface_adsorption). Both are intentionally small enough to audit frame by frame; they demonstrate query semantics rather than supply physical cutoff recommendations.
 
 PDB files can be queried directly: a file without `MODEL` records is one frame, while each `MODEL` block in an ensemble is a frame. When a trajectory has no timestamps, provide an explicit fallback spacing. Embedded timestamps always take precedence:
 
@@ -153,24 +161,26 @@ Each Python `Trajectory` retains parsed and topology-resolved plans by exact que
 - Times are normalized to ps. Supported distance units are `nm`, `angstrom`, and `A`; supported time units are `fs`, `ps`, `ns`, and `us`. Query thresholds and configurable fallback timesteps require explicit units except integer-like counts.
 - `DISTANCE(A,B)` is the minimum distance between distinct atoms in A and B. It uses Euclidean distance without a cell and a nearest-image search for orthorhombic or triclinic periodic cells.
 - `CONTACT(A,B)` is true when that minimum distance is less than or equal to 0.45 nm. `CONTACT_COUNT` counts unique unordered atom pairs, or unique unordered `(chain, resid)` pairs with `mode=residue`, at or below the same inclusive cutoff. Both honor orthorhombic and triclinic periodic boundaries.
-- `RG(A)` is the unweighted root-mean-square distance of selected atom coordinates from their geometric centroid. `mass_weighted=true` uses standard atomic weights derived from PDB element symbols. On periodic frames, both variants reconstruct the selected atoms by traversing PDB `CONECT` bonds before calculating the centroid. See [observable definitions](docs/observables.md).
-- Event endpoints are the timestamps of the first and last true sampled frames; duration is `end - start`. Single-sample events therefore have zero observed duration. Irregular timestamps are supported, while duplicate or decreasing timestamps are rejected. `FOR >=`, contact cutoffs, `WITHIN`, and interval boundary comparisons are inclusive. See [sampled-time event semantics](docs/temporal-semantics.md).
-- Periodic cells use a nearest-image search over neighboring lattice translations. XYZ comments accept `box=20,20,20A`; extended XYZ accepts a full `Lattice="..."` matrix in angstroms. Periodic `RG` requires the selected atoms to belong to one connected PDB bond component. See [periodic-boundary conventions](docs/periodic-boundaries.md).
+- `RG(A)` is the unweighted root-mean-square distance of selected atom coordinates from their geometric centroid. `mass_weighted=true` uses standard atomic weights derived from PDB element symbols. On periodic frames, both variants reconstruct the selected atoms by traversing PDB `CONECT` bonds before calculating the centroid. See [observable definitions](https://github.com/eganeganegan/EnsembleQL/blob/main/docs/observables.md).
+- Event endpoints are the timestamps of the first and last true sampled frames; duration is `end - start`. Single-sample events therefore have zero observed duration. Irregular timestamps are supported, while duplicate or decreasing timestamps are rejected. `FOR >=`, contact cutoffs, `WITHIN`, and interval boundary comparisons are inclusive. See [sampled-time event semantics](https://github.com/eganeganegan/EnsembleQL/blob/main/docs/temporal-semantics.md).
+- Periodic cells use a nearest-image search over neighboring lattice translations. XYZ comments accept `box=20,20,20A`; extended XYZ accepts a full `Lattice="..."` matrix in angstroms. Periodic `RG` requires the selected atoms to belong to one connected PDB bond component. See [periodic-boundary conventions](https://github.com/eganeganegan/EnsembleQL/blob/main/docs/periodic-boundaries.md).
 
 ## Architecture
 
 Public headers separate trajectory/topology I/O, selections, geometry, observables, event extraction, interval algebra, AST parsing, planning, and execution. `FrameReader` is the backend-neutral streaming interface used by the built-in XYZ/PDB readers and the optional multi-format Chemfiles adapter. Observable classes are likewise independent of the parser.
 
-Contact enumeration uses spatial hashing for sufficiently large non-periodic, orthorhombic, and triclinic selections, while small selections use the reference pairwise kernel. Stateful contact observables reuse Verlet-style candidate lists across frames and rebuild after a half-skin displacement or cell change. With OpenMP available, Cartesian candidate-distance filtering uses an explicit SIMD loop and SASA distributes selected atoms across threads; configure with `-DENSEMBLEQL_ENABLE_OPENMP=OFF` to force serial kernels. Boolean `CONTACT` evaluation retains scalar early exit. Other extension points include memory-mapped trajectory readers and additional observables. See [ROADMAP.md](ROADMAP.md).
+Contact enumeration uses spatial hashing for sufficiently large non-periodic, orthorhombic, and triclinic selections, while small selections use the reference pairwise kernel. Stateful contact observables reuse Verlet-style candidate lists across frames and rebuild after a half-skin displacement or cell change. With OpenMP available, Cartesian candidate-distance filtering uses an explicit SIMD loop and SASA distributes selected atoms across threads; configure with `-DENSEMBLEQL_ENABLE_OPENMP=OFF` to force serial kernels. Boolean `CONTACT` evaluation retains scalar early exit. Other extension points include memory-mapped trajectory readers and additional observables. See the [roadmap](https://github.com/eganeganegan/EnsembleQL/blob/main/ROADMAP.md).
 
 ## Current limitations
 
-PDB supplies topology metadata, element-derived standard atomic weights, and explicit `CONECT` bonds. XYZ and single- or multi-model PDB trajectories are always supported; the optional chemfiles backend adds the formats documented in [trajectory backends](docs/trajectory-backends.md). PDB `CRYST1` records preserve orthorhombic or triclinic cells. Chemfiles coordinates and cell vectors are converted from angstroms to nm; numeric `time` properties are interpreted as ps, while formats without one use the configured fallback. Periodic `RG` requires connected bond metadata, and EnsembleQL does not yet infer standard-residue bonds. Event intervals use sampled timestamps and therefore do not infer behavior between frames. `AND`/`OR` combine frame predicates; temporal relations operate on extracted intervals.
+PDB supplies topology metadata, element-derived standard atomic weights, and explicit `CONECT` bonds. XYZ and single- or multi-model PDB trajectories are always supported; the optional chemfiles backend adds the formats documented in [trajectory backends](https://github.com/eganeganegan/EnsembleQL/blob/main/docs/trajectory-backends.md). PDB `CRYST1` records preserve orthorhombic or triclinic cells. Chemfiles coordinates and cell vectors are converted from angstroms to nm; numeric `time` properties are interpreted as ps, while formats without one use the configured fallback. Periodic `RG` requires connected bond metadata, and EnsembleQL does not yet infer standard-residue bonds. Event intervals use sampled timestamps and therefore do not infer behavior between frames. `AND`/`OR` combine frame predicates; temporal relations operate on extracted intervals.
 
 ## Development
 
 The native target compiles with `-Wall -Wextra -Wpedantic`; CI additionally enables `ENSEMBLEQL_WARNINGS_AS_ERRORS`. Enable microbenchmarks with `-DENSEMBLEQL_BUILD_BENCHMARKS=ON`. The synthetic benchmarks compare optimized and pairwise contact detection at increasing atom counts, exercise neighbor-list reuse and triclinic hashing, report boolean-contact early-exit time, and cover streaming event extraction and temporal joins.
 
-The [scientific-validation suite](validation/README.md) compares every observable family with pinned MDAnalysis, MDTraj, or NumPy calculations on published AdK and membrane/peptide trajectories. Its machine-readable manifests record provenance, checksums, thresholds, tolerances, and expected event intervals; the large generated fixtures remain outside Git.
+The [scientific-validation suite](https://github.com/eganeganegan/EnsembleQL/blob/main/validation/README.md) compares every observable family with pinned MDAnalysis, MDTraj, or NumPy calculations on published AdK and membrane/peptide trajectories. Its machine-readable manifests record provenance, checksums, thresholds, tolerances, and expected event intervals; the large generated fixtures remain outside Git.
+
+Maintainer release builds use tested Linux and macOS wheels, Trusted Publishing, and tag/version consistency checks. See the [contribution guide](https://github.com/eganeganegan/EnsembleQL/blob/main/CONTRIBUTING.md), [release procedure](https://github.com/eganeganegan/EnsembleQL/blob/main/docs/releasing.md), and [changelog](https://github.com/eganeganegan/EnsembleQL/blob/main/CHANGELOG.md). Research users can cite the software using [`CITATION.cff`](https://github.com/eganeganegan/EnsembleQL/blob/main/CITATION.cff).
 
 Contributions should preserve scientific definitions, add boundary-condition tests, and keep file-format backends independent from the engine.

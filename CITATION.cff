@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use EnsembleQL in research, please cite this software."
+type: software
+title: "EnsembleQL: Declarative temporal queries for molecular dynamics"
+abstract: >-
+  EnsembleQL is a C++ and Python temporal query engine that turns molecular
+  dynamics observables into auditable events and temporal relationships.
+authors:
+  - family-names: Egan
+    given-names: Anthony
+version: 0.1.0
+license: MIT
+repository-code: "https://github.com/eganeganegan/EnsembleQL"
+url: "https://github.com/eganeganegan/EnsembleQL"
+keywords:
+  - molecular dynamics
+  - computational chemistry
+  - trajectory analysis
+  - temporal query language
