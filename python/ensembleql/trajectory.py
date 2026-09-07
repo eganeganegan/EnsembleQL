@@ -61,5 +61,9 @@ def load(
     topology: str | Path,
     default_timestep: str = "1ps",
 ) -> Trajectory:
-    """Open a supported trajectory using atom metadata and bonds from a PDB topology."""
+    """Open a supported trajectory using atom metadata and bonds from a PDB topology.
+
+    Use ``ensembleql.supported_trajectory_extensions()`` to inspect the formats
+    enabled in the installed native extension.
+    """
     return Trajectory(trajectory, topology, default_timestep=default_timestep)

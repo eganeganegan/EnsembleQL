@@ -14,7 +14,14 @@ Coordinates and `CRYST1` lengths are converted from angstroms to nm. `CRYST1` le
 
 ## Optional chemfiles
 
-Chemfiles 0.10 or newer adds streaming readers for XTC, TRR, and DCD. Its coordinates and cell lengths are supplied in angstroms and converted to nm. The `time` frame property for these formats is supplied in ps. If a frame has no time property, EnsembleQL uses the configured fallback step, which defaults to 1 ps.
+[Chemfiles 0.10](https://chemfiles.org/chemfiles/0.10.4/formats.html) or newer adds streaming readers for these coordinate-bearing formats:
+
+- Simulation formats: Amber NetCDF (`.nc`), Amber Restart (`.ncrst`), DCD (`.dcd`), GRO (`.gro`), LAMMPS trajectories (`.lammpstrj`), Tinker ARC (`.arc`), TNG (`.tng`), TPR (`.tpr`), TRJ (`.trj`), TRR (`.trr`), and XTC (`.xtc`).
+- Structure and ensemble formats: CIF (`.cif`), CML (`.cml`), CSSR (`.cssr`), mmCIF (`.mmcif`), MMTF (`.mmtf`), MOL2 (`.mol2`), Molden (`.molden`), and SDF (`.sdf`).
+
+Uncompressed XYZ and PDB continue to use EnsembleQL's dependency-free readers. With chemfiles enabled, `.xyz` and `.pdb` files compressed using gzip, bzip2, or xz are also accepted, as are compressed ARC, CIF, CML, CSSR, GRO, LAMMPS trajectory, mmCIF, MOL2, and SDF files.
+
+Chemfiles coordinates and cell lengths are supplied in angstroms and converted to nm. A numeric `time` frame property is interpreted as ps. If a frame has no numeric time property, EnsembleQL uses the configured fallback step, which defaults to 1 ps.
 
 The adapter accepts infinite, orthorhombic, and triclinic cells. Chemfiles cell matrices are converted into EnsembleQL's three-vector cell representation without discarding cell angles.
 
@@ -39,4 +46,4 @@ CMAKE_ARGS="-DENSEMBLEQL_FETCH_CHEMFILES=ON -DENSEMBLEQL_REQUIRE_CHEMFILES=ON" \
   python -m pip install -e .
 ```
 
-An ordinary build retains XYZ and PDB support if chemfiles is absent. Attempting to open XTC, TRR, or DCD then raises an error describing how to enable the backend. Call `ensembleql.chemfiles_backend_available()` to inspect the installed Python extension's capability.
+An ordinary build retains XYZ and PDB/ENT support if chemfiles is absent. Attempting to open a recognized optional format then raises an error describing how to enable the backend. Call `ensembleql.chemfiles_backend_available()` to inspect the installed Python extension's backend capability, or `ensembleql.supported_trajectory_extensions()` for the base-extension allowlist exposed by the build.

@@ -160,12 +160,23 @@ void test_io_and_selections() {
                  "PDB MODEL without ENDMDL is rejected");
 #ifdef ENSEMBLEQL_HAS_CHEMFILES
     check(chemfiles_backend_available(), "chemfiles availability flag enabled");
+    const auto formats = supported_trajectory_extensions();
+    check(std::find(formats.begin(), formats.end(), ".nc") != formats.end(),
+          "chemfiles build reports extended formats");
 #else
     check(!chemfiles_backend_available(), "chemfiles availability flag disabled");
+    const auto formats = supported_trajectory_extensions();
+    check(std::find(formats.begin(), formats.end(), ".xyz") != formats.end() &&
+              std::find(formats.begin(), formats.end(), ".nc") == formats.end(),
+          "dependency-free build reports only built-in formats");
     check_throws([&] {
         (void)Trajectory::from_files(root + "/tests/data/missing.xtc",
                                      root + "/examples/idr_contact_switching/switching.pdb");
     }, "compressed format reports missing optional backend");
+    check_throws([&] {
+        (void)Trajectory::from_files(root + "/tests/data/missing.nc",
+                                     root + "/examples/idr_contact_switching/switching.pdb");
+    }, "Amber NetCDF reports missing optional backend");
 #endif
 
     const auto model = simple_topology();

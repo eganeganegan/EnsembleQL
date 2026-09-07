@@ -3,6 +3,7 @@
 
 #include <chemfiles.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <iostream>
@@ -81,9 +82,16 @@ void test_triclinic_format() {
 
 int main() {
     check(chemfiles_backend_available(), "chemfiles backend availability");
+    const auto supported = supported_trajectory_extensions();
+    check(std::find(supported.begin(), supported.end(), ".nc") != supported.end(),
+          "extended format capability is discoverable");
     test_format(".dcd");
     test_format(".xtc");
     test_format(".trr");
+    test_format(".nc");
+    test_format(".gro");
+    test_format(".lammpstrj");
+    test_format(".xyz.gz");
     test_triclinic_format();
     if (failures != 0) {
         std::cerr << failures << " chemfiles test(s) failed\n";

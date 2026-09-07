@@ -36,14 +36,14 @@ cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
-Enable XTC, TRR, and DCD through an installed chemfiles library, or fetch the pinned stable release during configuration:
+Enable additional trajectory formats—including XTC, TRR, DCD, Amber NetCDF, GRO, LAMMPS trajectories, and TNG—through an installed chemfiles library, or fetch the pinned stable release during configuration:
 
 ```bash
 cmake -S . -B build -DENSEMBLEQL_FETCH_CHEMFILES=ON
 cmake --build build -j
 ```
 
-Use `-DENSEMBLEQL_REQUIRE_CHEMFILES=ON` when configuration should fail rather than produce an XYZ-only build. Python exposes `eql.chemfiles_backend_available()` for capability checks.
+Use `-DENSEMBLEQL_REQUIRE_CHEMFILES=ON` when configuration should fail rather than produce a built-in-only build. Python exposes `eql.chemfiles_backend_available()` and `eql.supported_trajectory_extensions()` for capability checks.
 
 To include the backend in an editable Python installation:
 
@@ -146,13 +146,13 @@ Each Python `Trajectory` retains parsed and topology-resolved plans by exact que
 
 ## Architecture
 
-Public headers separate trajectory/topology I/O, selections, geometry, observables, event extraction, interval algebra, AST parsing, planning, and execution. `FrameReader` is the backend-neutral streaming interface used by both the built-in XYZ reader and the optional Chemfiles XTC/TRR/DCD adapter. Observable classes are likewise independent of the parser.
+Public headers separate trajectory/topology I/O, selections, geometry, observables, event extraction, interval algebra, AST parsing, planning, and execution. `FrameReader` is the backend-neutral streaming interface used by the built-in XYZ/PDB readers and the optional multi-format Chemfiles adapter. Observable classes are likewise independent of the parser.
 
 Contact enumeration uses spatial hashing for sufficiently large non-periodic and axis-aligned orthorhombic selections, while small selections and general triclinic cells use the reference pairwise kernel. Boolean `CONTACT` evaluation stops at the first matching pair. The stable geometry API leaves room for Verlet neighbor lists, SIMD, or OpenMP underneath it. Other intended extension points are parallel frame evaluation, thread pools, and memory-mapped or additional compressed trajectory readers. See [ROADMAP.md](ROADMAP.md).
 
 ## Current limitations
 
-PDB supplies topology metadata, element-derived standard atomic weights, and explicit `CONECT` bonds. XYZ and single- or multi-model PDB trajectories are always supported; XTC, TRR, and DCD are available through the optional chemfiles backend. PDB `CRYST1` records preserve orthorhombic or triclinic cells. Chemfiles coordinates and cell vectors are converted from angstroms to nm, while its trajectory `time` property is already interpreted as ps. Periodic `RG` requires connected bond metadata, and EnsembleQL does not yet infer standard-residue bonds. Event intervals use sampled timestamps and therefore do not infer behavior between frames. `AND`/`OR` combine frame predicates; temporal relations operate on extracted intervals.
+PDB supplies topology metadata, element-derived standard atomic weights, and explicit `CONECT` bonds. XYZ and single- or multi-model PDB trajectories are always supported; the optional chemfiles backend adds the formats documented in [trajectory backends](docs/trajectory-backends.md). PDB `CRYST1` records preserve orthorhombic or triclinic cells. Chemfiles coordinates and cell vectors are converted from angstroms to nm; numeric `time` properties are interpreted as ps, while formats without one use the configured fallback. Periodic `RG` requires connected bond metadata, and EnsembleQL does not yet infer standard-residue bonds. Event intervals use sampled timestamps and therefore do not infer behavior between frames. `AND`/`OR` combine frame predicates; temporal relations operate on extracted intervals.
 
 ## Development
 

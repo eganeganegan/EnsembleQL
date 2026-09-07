@@ -88,6 +88,7 @@ private:
 #endif
 
 bool chemfiles_backend_available() noexcept;
+std::vector<std::string> supported_trajectory_extensions();
 
 class Trajectory {
 public:

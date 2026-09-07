@@ -100,6 +100,10 @@ def test_periodic_rg_uses_topology_bonds_for_unwrapping():
 
 def test_chemfiles_capability_is_discoverable():
     assert isinstance(eql.chemfiles_backend_available(), bool)
+    formats = eql.supported_trajectory_extensions()
+    assert formats == sorted(formats)
+    assert {".ent", ".pdb", ".xyz"} <= set(formats)
+    assert (".nc" in formats) is eql.chemfiles_backend_available()
 
 
 def test_compiled_plan_cache_is_trajectory_scoped():

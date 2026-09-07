@@ -47,7 +47,10 @@ bool ChemfilesReader::next(Frame& frame) {
     }
 
     frame.time_ps = static_cast<double>(impl_->frame_index) * impl_->default_step_ps;
-    if (const auto time = source.get("time")) frame.time_ps = time->as_double();
+    if (const auto time = source.get("time");
+        time && time->kind() == chemfiles::Property::DOUBLE) {
+        frame.time_ps = time->as_double();
+    }
 
     frame.coordinates.clear();
     frame.coordinates.reserve(source.size());

@@ -2,13 +2,15 @@
 #include "ensembleql/units.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
-#include <filesystem>
 #include <cmath>
+#include <filesystem>
 #include <optional>
 #include <regex>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 
 namespace ensembleql {
 namespace {
@@ -16,6 +18,55 @@ struct ParsedCell {
     std::optional<Vec3> box_nm;
     std::optional<PeriodicCell> cell_nm;
 };
+
+constexpr std::array<std::string_view, 3> built_in_extensions{
+    ".xyz", ".pdb", ".ent",
+};
+
+constexpr std::array<std::string_view, 21> chemfiles_extensions{
+    ".arc", ".cif", ".cml", ".cssr", ".dcd", ".gro", ".lammpstrj",
+    ".mmcif", ".mmtf", ".mol2", ".molden", ".nc", ".ncrst", ".pdb",
+    ".sdf", ".tng", ".tpr", ".trj", ".trr", ".xtc", ".xyz",
+};
+
+constexpr std::array<std::string_view, 11> compressed_text_extensions{
+    ".arc", ".cif", ".cml", ".cssr", ".gro", ".lammpstrj", ".mmcif",
+    ".mol2", ".pdb", ".sdf", ".xyz",
+};
+
+struct PathExtension {
+    std::string format;
+    std::string compression;
+};
+
+std::string lowercase(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+    });
+    return value;
+}
+
+PathExtension path_extension(const std::string& path) {
+    std::filesystem::path parsed(path);
+    std::string extension = lowercase(parsed.extension().string());
+    if (extension == ".gz" || extension == ".bz2" || extension == ".xz") {
+        parsed = parsed.stem();
+        return {lowercase(parsed.extension().string()), extension};
+    }
+    return {std::move(extension), {}};
+}
+
+template <std::size_t Size>
+bool contains_extension(const std::array<std::string_view, Size>& extensions,
+                        const std::string& extension) {
+    return std::find(extensions.begin(), extensions.end(), extension) != extensions.end();
+}
+
+bool is_chemfiles_path(const PathExtension& extension) {
+    if (!contains_extension(chemfiles_extensions, extension.format)) return false;
+    return extension.compression.empty() ||
+           contains_extension(compressed_text_extensions, extension.format);
+}
 
 void validate_box(const Vec3& box) {
     for (const double length : box) {
@@ -113,6 +164,25 @@ bool chemfiles_backend_available() noexcept {
 #endif
 }
 
+std::vector<std::string> supported_trajectory_extensions() {
+    std::vector<std::string> result;
+    result.reserve(built_in_extensions.size()
+#ifdef ENSEMBLEQL_HAS_CHEMFILES
+                   + chemfiles_extensions.size()
+#endif
+    );
+    for (const std::string_view extension : built_in_extensions) result.emplace_back(extension);
+#ifdef ENSEMBLEQL_HAS_CHEMFILES
+    for (const std::string_view extension : chemfiles_extensions) {
+        if (std::find(result.begin(), result.end(), extension) == result.end()) {
+            result.emplace_back(extension);
+        }
+    }
+#endif
+    std::sort(result.begin(), result.end());
+    return result;
+}
+
 XYZReader::XYZReader(std::string path, std::size_t expected_atoms, double default_step_ps)
     : path_(std::move(path)), expected_atoms_(expected_atoms), default_step_ps_(default_step_ps) {
     if (!std::isfinite(default_step_ps_) || default_step_ps_ <= 0.0) {
@@ -177,26 +247,24 @@ Trajectory Trajectory::from_files(const std::string& trajectory_path, const std:
         throw std::invalid_argument("Trajectory default timestep must be finite and positive");
     }
     Topology topology = Topology::from_pdb(topology_path);
-    std::string extension = std::filesystem::path(trajectory_path).extension().string();
-    std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char character) {
-        return static_cast<char>(std::tolower(character));
-    });
+    const PathExtension extension = path_extension(trajectory_path);
     std::shared_ptr<FrameReader> reader;
-    if (extension == ".xyz") {
+    if (extension.compression.empty() && extension.format == ".xyz") {
         reader = std::make_shared<XYZReader>(trajectory_path, topology.size(), default_timestep_ps);
-    } else if (extension == ".pdb" || extension == ".ent") {
+    } else if (extension.compression.empty() &&
+               (extension.format == ".pdb" || extension.format == ".ent")) {
         reader = std::make_shared<PDBReader>(trajectory_path, topology.size(), default_timestep_ps);
-    } else if (extension == ".xtc" || extension == ".trr" || extension == ".dcd") {
+    } else if (is_chemfiles_path(extension)) {
 #ifdef ENSEMBLEQL_HAS_CHEMFILES
         reader = std::make_shared<ChemfilesReader>(trajectory_path, topology.size(), default_timestep_ps);
 #else
-        throw std::runtime_error("Trajectory format '" + extension +
+        throw std::runtime_error("Trajectory format '" + extension.format + extension.compression +
                                  "' requires the optional chemfiles backend; configure with "
                                  "-DENSEMBLEQL_FETCH_CHEMFILES=ON or install chemfiles >= 0.10");
 #endif
     } else {
-        throw std::runtime_error("Unsupported trajectory format '" + extension +
-                                 "'; supported: XYZ, PDB/ENT, and XTC/TRR/DCD with chemfiles");
+        throw std::runtime_error("Unsupported trajectory format '" + extension.format + extension.compression +
+                                 "'; inspect supported_trajectory_extensions() for this build");
     }
     return Trajectory(std::move(topology), std::move(reader));
 }

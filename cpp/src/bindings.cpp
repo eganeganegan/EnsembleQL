@@ -84,6 +84,7 @@ PYBIND11_MODULE(_core, module) {
                },
                py::arg("a"), py::arg("b"), py::arg("vectors_nm"));
     module.def("chemfiles_backend_available", &chemfiles_backend_available);
+    module.def("supported_trajectory_extensions", &supported_trajectory_extensions);
     module.def("parse_duration_ps", [](const std::string& value) { return parse_duration(value).ps; });
     module.def("explain_query", [](const Topology& topology, const std::string& text) {
         return explanation_dict(Engine().explain(topology, text));
