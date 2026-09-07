@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -7,6 +8,7 @@ pytest.importorskip("ensembleql._core")
 
 ROOT = Path(__file__).parents[2]
 EXAMPLE = ROOT / "examples" / "idr_contact_switching"
+ADSORPTION = ROOT / "examples" / "peptide_surface_adsorption"
 PBC_DATA = ROOT / "tests" / "data"
 QUERY = """
 FIND CONTACT(resid 17, resid 42)
@@ -24,10 +26,69 @@ def test_contact_switching_vertical_slice():
     assert events[0].metadata["transition_gap_ps"] == "0.000000"
 
 
+def test_peptide_surface_adsorption_example():
+    trajectory = eql.load(
+        ADSORPTION / "adsorption.xyz", topology=ADSORPTION / "adsorption.pdb"
+    )
+    events = trajectory.query((ADSORPTION / "query.eql").read_text())
+    assert len(events) == 1
+    assert events[0].start == pytest.approx(1.0)
+    assert events[0].end == pytest.approx(4.0)
+
+    sasa = trajectory.query("FIND SASA(chain A, points=24) > 0nm2;")
+    assert len(sasa) == 1
+    assert sasa[0].end == pytest.approx(5.0)
+
+
+def test_new_temporal_operators_execute():
+    trajectory = eql.load(EXAMPLE / "switching.xyz", topology=EXAMPLE / "switching.pdb")
+    immediate = trajectory.query(
+        "FIND CONTACT(resid 17, resid 42) "
+        "IMMEDIATELY_FOLLOWED_BY CONTACT(resid 17, resid 53);"
+    )
+    assert len(immediate) == 1
+    assert immediate[0].start == pytest.approx(0.0)
+    assert immediate[0].end == pytest.approx(4000.0)
+
+    during = trajectory.query(
+        "FIND CONTACT(resid 42, resid 53, cutoff=0.01nm) "
+        "DURING CONTACT(resid 17, resid 42);"
+    )
+    assert len(during) == 1
+    until = trajectory.query(
+        "FIND CONTACT(resid 17, resid 42) UNTIL CONTACT(resid 17, resid 53);"
+    )
+    assert len(until) == 1
+    assert until[0].end == pytest.approx(4000.0)
+
+
 def test_results_records_and_repr():
     events = eql.load(EXAMPLE / "switching.xyz", topology=EXAMPLE / "switching.pdb").query(QUERY)
     assert events.to_records()[0]["duration_ps"] == pytest.approx(4000.0)
     assert "FOLLOWED_BY" in repr(events)
+
+
+def test_event_analysis_outputs():
+    event = lambda start, end, kind: SimpleNamespace(
+        start=start, end=end, duration=end - start, type=kind,
+        selections=[], metadata={}
+    )
+    results = eql.EventResults([
+        event(0, 1, "A"), event(2, 3, "B"), event(4, 5, "A"),
+        event(6, 7, "B"), event(20, 21, "C"),
+    ])
+    assert results.recurrence_statistics()["A"]["count"] == 2
+    assert results.event_frequency(observation_time_ps=10)["A"] == pytest.approx(0.2)
+    with pytest.raises(ValueError, match="positive"):
+        results.event_frequency(observation_time_ps=0)
+    assert results.conditional_probability("A", "B", within_ps=1) == 1.0
+    assert results.transition_matrix(within_ps=1)["A"]["B"] == 2
+    assert results.motifs(2)[("A", "B")] == 2
+    assert results.recurring_subsequences(2) == {("A", "B"): 2}
+    assert len(results.temporal_clusters(max_gap_ps=1)) == 2
+    assert len(results.event_graph(within_ps=1)["edges"]) == 3
+    network = results.state_transition_network(within_ps=1)
+    assert {edge["count"] for edge in network["edges"]} == {1, 2}
 
 
 def test_engine_error_reaches_python():

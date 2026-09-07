@@ -50,6 +50,41 @@ int main() {
                   << " speedup=" << brute_ms / optimized_ms
                   << " any=" << any << " boolean_ms=" << boolean_ms << '\n';
     }
+    Frame moving;
+    constexpr std::size_t moving_atoms = 2000;
+    moving.coordinates.resize(moving_atoms);
+    for (std::size_t i = 0; i < moving_atoms; ++i) {
+        moving.coordinates[i] = {static_cast<double>(i % 100) * 0.08,
+                                 static_cast<double>((i / 100) % 20) * 0.08,
+                                 static_cast<double>(i / 2000) * 0.08};
+    }
+    std::vector<std::size_t> moving_left, moving_right;
+    for (std::size_t i = 0; i < moving_atoms / 2; ++i) moving_left.push_back(i);
+    for (std::size_t i = moving_atoms / 2; i < moving_atoms; ++i) moving_right.push_back(i);
+    NeighborList neighbor_list(moving_left, moving_right, 0.45, 0.1);
+    const auto neighbor_start = std::chrono::steady_clock::now();
+    std::size_t reused_contacts = 0;
+    for (std::size_t frame_index = 0; frame_index < 100; ++frame_index) {
+        for (Vec3& coordinate : moving.coordinates) coordinate[0] += 0.0001;
+        reused_contacts += neighbor_list.contacts(moving).size();
+    }
+    const auto neighbor_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - neighbor_start).count();
+    std::cout << "neighbor_list frames=100 contacts=" << reused_contacts
+              << " rebuilds=" << neighbor_list.rebuild_count()
+              << " ms=" << neighbor_ms << '\n';
+
+    PeriodicCell triclinic;
+    triclinic.vectors_nm = {Vec3{8.0, 0.5, 0.0}, Vec3{0.0, 4.0, 0.3},
+                            Vec3{0.0, 0.0, 2.0}};
+    moving.cell_nm = triclinic;
+    const auto triclinic_start = std::chrono::steady_clock::now();
+    const auto triclinic_contacts = contacts(moving, moving_left, moving_right, 0.45);
+    const auto triclinic_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - triclinic_start).count();
+    std::cout << "triclinic_spatial_hash pairs=" << moving_left.size() * moving_right.size()
+              << " found=" << triclinic_contacts.size() << " ms=" << triclinic_ms << '\n';
+
     constexpr std::size_t count = 100000;
     EventExtractor extractor("synthetic");
     const auto extraction_start = std::chrono::steady_clock::now();

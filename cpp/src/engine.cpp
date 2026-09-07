@@ -50,6 +50,55 @@ std::string observable_signature(const ast::ExprPtr& expression) {
             const auto& x = static_cast<const ast::RgExpr&>(*expression);
             return "RG(" + x.selection + (x.mass_weighted ? ",mass_weighted=true" : "") + ")";
         }
+        case ast::Kind::HydrogenBond: {
+            const auto& x = static_cast<const ast::HydrogenBondExpr&>(*expression);
+            return "HBOND(" + x.donors + "," + x.acceptors +
+                ",distance=" + number(x.distance_cutoff.nm) + "nm,angle=" +
+                number(x.minimum_angle.degrees) + "deg)";
+        }
+        case ast::Kind::Dihedral: {
+            const auto& x = static_cast<const ast::DihedralExpr&>(*expression);
+            return "DIHEDRAL(" + x.selections[0] + "," + x.selections[1] + "," +
+                   x.selections[2] + "," + x.selections[3] + ")";
+        }
+        case ast::Kind::Helix: {
+            const auto& x = static_cast<const ast::HelixExpr&>(*expression);
+            return "HELIX(" + x.selection + ",minimum_fraction=" + number(x.minimum_fraction) + ")";
+        }
+        case ast::Kind::Sasa: {
+            const auto& x = static_cast<const ast::SasaExpr&>(*expression);
+            return "SASA(" + x.selection + ",probe=" + number(x.probe.nm) +
+                   "nm,points=" + std::to_string(x.points) + ")";
+        }
+        case ast::Kind::Rmsd: {
+            const auto& x = static_cast<const ast::RmsdExpr&>(*expression);
+            return "RMSD(" + x.selection + ",align=" + (x.align ? "true" : "false") + ")";
+        }
+        case ast::Kind::CoordinationNumber: {
+            const auto& x = static_cast<const ast::CoordinationNumberExpr&>(*expression);
+            return "COORDINATION_NUMBER(" + x.centers + "," + x.neighbors +
+                   ",cutoff=" + number(x.cutoff.nm) + "nm)";
+        }
+        case ast::Kind::SaltBridge: {
+            const auto& x = static_cast<const ast::SaltBridgeExpr&>(*expression);
+            return pair_signature("SALT_BRIDGE", x.positive, x.negative,
+                                  ",cutoff=" + number(x.cutoff.nm) + "nm");
+        }
+        case ast::Kind::AromaticStacking: {
+            const auto& x = static_cast<const ast::AromaticStackingExpr&>(*expression);
+            return pair_signature("AROMATIC_STACKING", x.first_ring, x.second_ring,
+                ",distance=" + number(x.centroid_cutoff.nm) + "nm,angle=" +
+                number(x.maximum_angle.degrees) + "deg");
+        }
+        case ast::Kind::SurfaceDistance: {
+            const auto& x = static_cast<const ast::SurfaceDistanceExpr&>(*expression);
+            return pair_signature("SURFACE_DISTANCE", x.molecule, x.surface);
+        }
+        case ast::Kind::Orientation: {
+            const auto& x = static_cast<const ast::OrientationExpr&>(*expression);
+            return "ORIENTATION(" + x.origin + "," + x.target + ",axis=" +
+                   std::string(1, x.axis) + ")";
+        }
         default:
             throw std::logic_error("Expression is not an observable");
     }
@@ -73,9 +122,17 @@ std::string signature(const ast::ExprPtr& expression) {
             const auto& x = static_cast<const ast::RgExpr&>(*expression);
             return "RG(" + x.selection + (x.mass_weighted ? ",mass_weighted=true" : "") + ")";
         }
+        case ast::Kind::HydrogenBond: case ast::Kind::Helix:
+        case ast::Kind::SaltBridge: case ast::Kind::AromaticStacking:
+            return observable_signature(expression);
+        case ast::Kind::Dihedral: case ast::Kind::Sasa: case ast::Kind::Rmsd:
+        case ast::Kind::CoordinationNumber: case ast::Kind::SurfaceDistance:
+        case ast::Kind::Orientation:
+            return observable_signature(expression);
         case ast::Kind::Comparison: { const auto& x = static_cast<const ast::ComparisonExpr&>(*expression); return signature(x.operand) + "#CMP" + std::to_string(static_cast<int>(x.op)) + ":" + std::to_string(x.threshold); }
         case ast::Kind::And: case ast::Kind::Or: { const auto& x = static_cast<const ast::BinaryExpr&>(*expression); return "(" + signature(x.left) + (expression->kind == ast::Kind::And ? "&" : "|") + signature(x.right) + ")"; }
         case ast::Kind::For: return signature(static_cast<const ast::ForExpr&>(*expression).operand);
+        case ast::Kind::Repeats: return signature(static_cast<const ast::RepeatsExpr&>(*expression).operand);
         default: return "TEMPORAL";
     }
 }
@@ -86,6 +143,16 @@ std::vector<std::string> expression_selections(const ast::ExprPtr& expression) {
         case ast::Kind::Distance: { const auto& x = static_cast<const ast::DistanceExpr&>(*expression); return {x.a, x.b}; }
         case ast::Kind::ContactCount: { const auto& x = static_cast<const ast::ContactCountExpr&>(*expression); return {x.a, x.b}; }
         case ast::Kind::Rg: return {static_cast<const ast::RgExpr&>(*expression).selection};
+        case ast::Kind::HydrogenBond: { const auto& x = static_cast<const ast::HydrogenBondExpr&>(*expression); return {x.donors, x.acceptors}; }
+        case ast::Kind::Dihedral: { const auto& x = static_cast<const ast::DihedralExpr&>(*expression); return std::vector<std::string>(x.selections.begin(), x.selections.end()); }
+        case ast::Kind::Helix: return {static_cast<const ast::HelixExpr&>(*expression).selection};
+        case ast::Kind::Sasa: return {static_cast<const ast::SasaExpr&>(*expression).selection};
+        case ast::Kind::Rmsd: return {static_cast<const ast::RmsdExpr&>(*expression).selection};
+        case ast::Kind::CoordinationNumber: { const auto& x = static_cast<const ast::CoordinationNumberExpr&>(*expression); return {x.centers, x.neighbors}; }
+        case ast::Kind::SaltBridge: { const auto& x = static_cast<const ast::SaltBridgeExpr&>(*expression); return {x.positive, x.negative}; }
+        case ast::Kind::AromaticStacking: { const auto& x = static_cast<const ast::AromaticStackingExpr&>(*expression); return {x.first_ring, x.second_ring}; }
+        case ast::Kind::SurfaceDistance: { const auto& x = static_cast<const ast::SurfaceDistanceExpr&>(*expression); return {x.molecule, x.surface}; }
+        case ast::Kind::Orientation: { const auto& x = static_cast<const ast::OrientationExpr&>(*expression); return {x.origin, x.target}; }
         case ast::Kind::Comparison: return expression_selections(static_cast<const ast::ComparisonExpr&>(*expression).operand);
         case ast::Kind::And: case ast::Kind::Or: {
             const auto& x = static_cast<const ast::BinaryExpr&>(*expression);
@@ -111,6 +178,58 @@ std::shared_ptr<Observable> make_observable(const ast::ExprPtr& expression, cons
             return std::make_shared<RgObservable>(resolve(x.selection), topology.bonds(),
                                                   x.mass_weighted ? topology.masses_da() : std::vector<double>{});
         }
+        case ast::Kind::HydrogenBond: {
+            const auto& x = static_cast<const ast::HydrogenBondExpr&>(*expression);
+            return std::make_shared<HydrogenBondObservable>(
+                resolve(x.donors), resolve(x.acceptors), topology,
+                x.distance_cutoff.nm, x.minimum_angle.degrees);
+        }
+        case ast::Kind::Dihedral: {
+            const auto& x = static_cast<const ast::DihedralExpr&>(*expression);
+            return std::make_shared<DihedralObservable>(
+                resolve(x.selections[0]).front(), resolve(x.selections[1]).front(),
+                resolve(x.selections[2]).front(), resolve(x.selections[3]).front());
+        }
+        case ast::Kind::Helix: {
+            const auto& x = static_cast<const ast::HelixExpr&>(*expression);
+            return std::make_shared<HelixObservable>(resolve(x.selection), topology,
+                                                     x.minimum_fraction);
+        }
+        case ast::Kind::Sasa: {
+            const auto& x = static_cast<const ast::SasaExpr&>(*expression);
+            return std::make_shared<SasaObservable>(resolve(x.selection), topology,
+                                                    x.probe.nm, x.points);
+        }
+        case ast::Kind::Rmsd: {
+            const auto& x = static_cast<const ast::RmsdExpr&>(*expression);
+            return std::make_shared<RmsdObservable>(resolve(x.selection), x.align);
+        }
+        case ast::Kind::CoordinationNumber: {
+            const auto& x = static_cast<const ast::CoordinationNumberExpr&>(*expression);
+            return std::make_shared<CoordinationNumberObservable>(
+                resolve(x.centers), resolve(x.neighbors), x.cutoff.nm);
+        }
+        case ast::Kind::SaltBridge: {
+            const auto& x = static_cast<const ast::SaltBridgeExpr&>(*expression);
+            return std::make_shared<SaltBridgeObservable>(
+                resolve(x.positive), resolve(x.negative), x.cutoff.nm);
+        }
+        case ast::Kind::AromaticStacking: {
+            const auto& x = static_cast<const ast::AromaticStackingExpr&>(*expression);
+            return std::make_shared<AromaticStackingObservable>(
+                resolve(x.first_ring), resolve(x.second_ring), x.centroid_cutoff.nm,
+                x.maximum_angle.degrees);
+        }
+        case ast::Kind::SurfaceDistance: {
+            const auto& x = static_cast<const ast::SurfaceDistanceExpr&>(*expression);
+            return std::make_shared<SurfaceDistanceObservable>(resolve(x.molecule),
+                                                               resolve(x.surface));
+        }
+        case ast::Kind::Orientation: {
+            const auto& x = static_cast<const ast::OrientationExpr&>(*expression);
+            return std::make_shared<OrientationObservable>(resolve(x.origin), resolve(x.target),
+                                                           x.axis);
+        }
         default: throw std::logic_error("Expression is not an observable");
     }
 }
@@ -123,7 +242,10 @@ Predicate make_predicate(const ast::ExprPtr& expression, const Topology& topolog
         if (inserted) iterator->second = make_observable(observable_expression, topology);
         return std::pair{key, iterator->second};
     };
-    if (expression->kind == ast::Kind::Contact) {
+    if (expression->kind == ast::Kind::Contact ||
+        expression->kind == ast::Kind::HydrogenBond || expression->kind == ast::Kind::Helix ||
+        expression->kind == ast::Kind::SaltBridge ||
+        expression->kind == ast::Kind::AromaticStacking) {
         auto [key, observable] = bind_observable(expression);
         return [key = std::move(key), observable = std::move(observable)](const Frame& frame, ValueCache& cache) {
             const auto found = cache.find(key);
@@ -158,7 +280,9 @@ Predicate make_predicate(const ast::ExprPtr& expression, const Topology& topolog
         auto right = make_predicate(binary.right, topology, registry);
         const bool is_and = expression->kind == ast::Kind::And;
         return [left = std::move(left), right = std::move(right), is_and](const Frame& frame, ValueCache& cache) {
-            return is_and ? left(frame, cache) && right(frame, cache) : left(frame, cache) || right(frame, cache);
+            const bool left_value = left(frame, cache);
+            const bool right_value = right(frame, cache);
+            return is_and ? left_value && right_value : left_value || right_value;
         };
     }
     throw QueryError("Expression does not produce frame predicates");
@@ -166,8 +290,12 @@ Predicate make_predicate(const ast::ExprPtr& expression, const Topology& topolog
 
 void collect_sources(const ast::ExprPtr& expression, std::map<std::string, ast::ExprPtr>& sources) {
     if (expression->kind == ast::Kind::For) { collect_sources(static_cast<const ast::ForExpr&>(*expression).operand, sources); return; }
-    if (expression->kind == ast::Kind::FollowedBy || expression->kind == ast::Kind::Overlaps ||
-        expression->kind == ast::Kind::Before || expression->kind == ast::Kind::After) {
+    if (expression->kind == ast::Kind::Repeats) { collect_sources(static_cast<const ast::RepeatsExpr&>(*expression).operand, sources); return; }
+    if (expression->kind == ast::Kind::FollowedBy ||
+        expression->kind == ast::Kind::ImmediatelyFollowedBy ||
+        expression->kind == ast::Kind::Overlaps || expression->kind == ast::Kind::During ||
+        expression->kind == ast::Kind::Until || expression->kind == ast::Kind::Before ||
+        expression->kind == ast::Kind::Precedes || expression->kind == ast::Kind::After) {
         const auto& binary = static_cast<const ast::BinaryExpr&>(*expression);
         collect_sources(binary.left, sources); collect_sources(binary.right, sources); return;
     }
@@ -180,15 +308,29 @@ std::vector<Event> evaluate_events(const ast::ExprPtr& expression,
         const auto& value = static_cast<const ast::ForExpr&>(*expression);
         return filter_for(evaluate_events(value.operand, streams), value.duration.ps);
     }
+    if (expression->kind == ast::Kind::Repeats) {
+        const auto& value = static_cast<const ast::RepeatsExpr&>(*expression);
+        return temporal::repeats(evaluate_events(value.operand, streams), value.count,
+                                 value.within ? std::optional<double>(value.within->ps) : std::nullopt);
+    }
     if (expression->kind == ast::Kind::FollowedBy) {
         const auto& x = static_cast<const ast::FollowedByExpr&>(*expression);
         return temporal::followed_by(evaluate_events(x.left, streams), evaluate_events(x.right, streams), x.within ? std::optional<double>(x.within->ps) : std::nullopt);
     }
-    if (expression->kind == ast::Kind::Overlaps || expression->kind == ast::Kind::Before || expression->kind == ast::Kind::After) {
+    if (expression->kind == ast::Kind::ImmediatelyFollowedBy ||
+        expression->kind == ast::Kind::Overlaps || expression->kind == ast::Kind::During ||
+        expression->kind == ast::Kind::Until || expression->kind == ast::Kind::Before ||
+        expression->kind == ast::Kind::Precedes || expression->kind == ast::Kind::After) {
         const auto& x = static_cast<const ast::BinaryExpr&>(*expression);
         const auto left = evaluate_events(x.left, streams), right = evaluate_events(x.right, streams);
+        if (expression->kind == ast::Kind::ImmediatelyFollowedBy) {
+            return temporal::join_immediately_followed_by(left, right);
+        }
         if (expression->kind == ast::Kind::Overlaps) return temporal::join_overlaps(left, right);
+        if (expression->kind == ast::Kind::During) return temporal::join_during(left, right);
+        if (expression->kind == ast::Kind::Until) return temporal::join_until(left, right);
         if (expression->kind == ast::Kind::Before) return temporal::join_before(left, right);
+        if (expression->kind == ast::Kind::Precedes) return temporal::join_precedes(left, right);
         return temporal::join_after(left, right);
     }
     return streams.at(signature(expression));

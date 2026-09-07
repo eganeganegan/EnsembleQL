@@ -77,6 +77,8 @@ events = traj.query("""
 print(events)
 ```
 
+Two end-to-end research fixtures are included: [IDR contact switching](examples/idr_contact_switching) and a [peptide–surface adsorption mechanism](examples/peptide_surface_adsorption). Both are intentionally small enough to audit frame by frame; they demonstrate query semantics rather than supply physical cutoff recommendations.
+
 PDB files can be queried directly: a file without `MODEL` records is one frame, while each `MODEL` block in an ensemble is a frame. When a trajectory has no timestamps, provide an explicit fallback spacing. Embedded timestamps always take precedence:
 
 ```python
@@ -99,9 +101,20 @@ FIND CONTACT_COUNT(resid 1:20, resid 40:60) >= 4;
 FIND RG(protein, mass_weighted=true) < 2.0nm;
 FIND CONTACT_COUNT(resid 1:20, resid 40:60, mode=residue) >= 4;
 FIND CONTACT(resid 17, resid 42) OVERLAPS CONTACT(resid 17, resid 53);
+FIND HBOND(name N, name O, distance=0.35nm, min_angle=150deg);
+FIND DIHEDRAL(name C1, name N2, name CA2, name C2) < -30deg;
+FIND HELIX(resid 20:32, minimum_fraction=0.7);
+FIND SASA(protein, probe=0.14nm, points=192) < 40nm2;
+FIND RMSD(protein) < 0.2nm;
+FIND COORDINATION_NUMBER(resname ZN, name O, cutoff=0.3nm) >= 4;
+FIND SALT_BRIDGE(resname ARG and name CZ, resname ASP and name CG);
+FIND AROMATIC_STACKING(resid 10, resid 25);
+FIND SURFACE_DISTANCE(protein, resname SUR) < 0.4nm;
+FIND ORIENTATION(resid 1, resid 10, axis=z) < 30deg;
+FIND CONTACT(resid 17, resid 42) REPEATS >= 3 WITHIN 20ns;
 ```
 
-`FOLLOWED_BY`, `WITHIN`, `BEFORE`, `AFTER`, `OVERLAPS`, `FOR`, `AND`, and `OR` have AST nodes. Parentheses can group temporal expressions. The parser only creates an AST; the planner resolves selections and deduplicates required observables; the engine then evaluates every required predicate in a single streaming traversal and retains events rather than a full boolean time series.
+`FOLLOWED_BY`, `WITHIN`, `IMMEDIATELY_FOLLOWED_BY`, `BEFORE`, `PRECEDES`, `AFTER`, `OVERLAPS`, `DURING`, `UNTIL`, `REPEATS`, `FOR`, `AND`, and `OR` have AST nodes. Parentheses can group temporal expressions. The parser only creates an AST; the planner resolves selections and deduplicates required observables; the engine then evaluates every required predicate in a single streaming traversal and retains events rather than a full boolean time series.
 
 Selections support `resid 17`, `resid 17:25`, `name CA`, `resname ARG`, `chain A`, `protein`, and `hydrogen`. They compose with case-insensitive `and`, `or`, `not`, and parentheses; `and` binds more tightly than `or`.
 
@@ -120,7 +133,7 @@ ensembleql query --topology structure.pdb --trajectory trajectory.xyz \
   --query "FIND CONTACT(resid 17, resid 42) FOR >= 2ns;" --format json
 ```
 
-Output formats are `table`, `csv`, and `json`. `EventResults.to_dataframe()` returns a pandas DataFrame when pandas is installed and otherwise returns a list of records.
+Output formats are `table`, `csv`, and `json`. `EventResults.to_dataframe()` returns a pandas DataFrame when pandas is installed and otherwise returns a list of records. `EventResults` also provides recurrence statistics, explicitly normalized event frequencies, conditional probabilities, transition matrices, motif and recurring-subsequence counts, temporal clusters, event graphs, and aggregated state-transition networks.
 
 Inspect a query before reading trajectory frames:
 
@@ -148,7 +161,7 @@ Each Python `Trajectory` retains parsed and topology-resolved plans by exact que
 
 Public headers separate trajectory/topology I/O, selections, geometry, observables, event extraction, interval algebra, AST parsing, planning, and execution. `FrameReader` is the backend-neutral streaming interface used by the built-in XYZ/PDB readers and the optional multi-format Chemfiles adapter. Observable classes are likewise independent of the parser.
 
-Contact enumeration uses spatial hashing for sufficiently large non-periodic and axis-aligned orthorhombic selections, while small selections and general triclinic cells use the reference pairwise kernel. Boolean `CONTACT` evaluation stops at the first matching pair. The stable geometry API leaves room for Verlet neighbor lists, SIMD, or OpenMP underneath it. Other intended extension points are parallel frame evaluation, thread pools, and memory-mapped or additional compressed trajectory readers. See [ROADMAP.md](ROADMAP.md).
+Contact enumeration uses spatial hashing for sufficiently large non-periodic, orthorhombic, and triclinic selections, while small selections use the reference pairwise kernel. Stateful contact observables reuse Verlet-style candidate lists across frames and rebuild after a half-skin displacement or cell change. With OpenMP available, Cartesian candidate-distance filtering uses an explicit SIMD loop and SASA distributes selected atoms across threads; configure with `-DENSEMBLEQL_ENABLE_OPENMP=OFF` to force serial kernels. Boolean `CONTACT` evaluation retains scalar early exit. Other extension points include memory-mapped trajectory readers and additional observables. See [ROADMAP.md](ROADMAP.md).
 
 ## Current limitations
 
@@ -156,6 +169,6 @@ PDB supplies topology metadata, element-derived standard atomic weights, and exp
 
 ## Development
 
-The native target compiles with `-Wall -Wextra -Wpedantic`; CI additionally enables `ENSEMBLEQL_WARNINGS_AS_ERRORS`. Enable microbenchmarks with `-DENSEMBLEQL_BUILD_BENCHMARKS=ON`. The synthetic benchmarks compare optimized and pairwise contact detection at increasing atom counts, report boolean-contact early-exit time, and cover streaming event extraction and temporal joins.
+The native target compiles with `-Wall -Wextra -Wpedantic`; CI additionally enables `ENSEMBLEQL_WARNINGS_AS_ERRORS`. Enable microbenchmarks with `-DENSEMBLEQL_BUILD_BENCHMARKS=ON`. The synthetic benchmarks compare optimized and pairwise contact detection at increasing atom counts, exercise neighbor-list reuse and triclinic hashing, report boolean-contact early-exit time, and cover streaming event extraction and temporal joins.
 
 Contributions should preserve scientific definitions, add boundary-condition tests, and keep file-format backends independent from the engine.

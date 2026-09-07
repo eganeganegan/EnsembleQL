@@ -85,6 +85,19 @@ double frame_distance(const std::optional<PeriodicCell>& cell, const Vec3& a, co
     return cell ? minimum_image_distance_cell(a, b, *cell) : distance(a, b);
 }
 
+bool same_cell(const std::optional<PeriodicCell>& first,
+               const std::optional<PeriodicCell>& second) {
+    if (first.has_value() != second.has_value()) return false;
+    if (!first) return true;
+    for (std::size_t vector = 0; vector < 3; ++vector) {
+        for (std::size_t dimension = 0; dimension < 3; ++dimension) {
+            if (first->vectors_nm[vector][dimension] !=
+                second->vectors_nm[vector][dimension]) return false;
+        }
+    }
+    return true;
+}
+
 std::optional<Vec3> axis_aligned_box(const Frame& frame) {
     if (!frame.cell_nm) {
         if (frame.box_nm) validate_box(*frame.box_nm);
@@ -123,6 +136,7 @@ struct CellKeyHash {
 struct SpatialGrid {
     double cell_width_nm{};
     std::optional<Vec3> box_nm;
+    std::optional<PeriodicCell> cell_nm;
     std::array<long long, 3> periodic_bins{};
     std::unordered_map<CellKey, std::vector<std::size_t>, CellKeyHash> cells;
 };
@@ -146,8 +160,30 @@ std::optional<CellKey> nonperiodic_key(const Vec3& coordinate, double width) {
     return key;
 }
 
+Vec3 fractional_coordinate(const Vec3& coordinate, const PeriodicCell& cell) {
+    const auto& a = cell.vectors_nm[0];
+    const auto& b = cell.vectors_nm[1];
+    const auto& c = cell.vectors_nm[2];
+    const double determinant = dot(a, cross(b, c));
+    return {dot(coordinate, cross(b, c)) / determinant,
+            dot(coordinate, cross(c, a)) / determinant,
+            dot(coordinate, cross(a, b)) / determinant};
+}
+
 CellKey periodic_key(const Vec3& coordinate, const SpatialGrid& grid) {
     CellKey key{};
+    if (grid.cell_nm) {
+        const Vec3 fractional = fractional_coordinate(coordinate, *grid.cell_nm);
+        for (std::size_t dimension = 0; dimension < 3; ++dimension) {
+            double wrapped = fractional[dimension] - std::floor(fractional[dimension]);
+            if (wrapped >= 1.0) wrapped = 0.0;
+            key[dimension] = std::min(
+                grid.periodic_bins[dimension] - 1,
+                static_cast<long long>(std::floor(
+                    wrapped * static_cast<double>(grid.periodic_bins[dimension]))));
+        }
+        return key;
+    }
     for (std::size_t dimension = 0; dimension < 3; ++dimension) {
         const double length = (*grid.box_nm)[dimension];
         double wrapped = std::fmod(coordinate[dimension], length);
@@ -165,11 +201,24 @@ std::optional<SpatialGrid> make_spatial_grid(const Frame& frame,
     SpatialGrid grid;
     grid.cell_width_nm = cell_width_nm;
     grid.box_nm = axis_aligned_box(frame);
-    if (frame.cell_nm && !grid.box_nm) return std::nullopt;
+    if (frame.cell_nm && !grid.box_nm) grid.cell_nm = frame.cell_nm;
 
-    if (grid.box_nm) {
+    if (grid.box_nm || grid.cell_nm) {
         for (std::size_t dimension = 0; dimension < 3; ++dimension) {
-            const double ratio = std::floor((*grid.box_nm)[dimension] / cell_width_nm);
+            double ratio{};
+            if (grid.box_nm) {
+                ratio = std::floor((*grid.box_nm)[dimension] / cell_width_nm);
+            } else {
+                const auto& cell = *grid.cell_nm;
+                const Vec3 reciprocal = dimension == 0 ? cross(cell.vectors_nm[1], cell.vectors_nm[2]) :
+                    dimension == 1 ? cross(cell.vectors_nm[2], cell.vectors_nm[0]) :
+                                     cross(cell.vectors_nm[0], cell.vectors_nm[1]);
+                const double determinant = std::abs(dot(
+                    cell.vectors_nm[0], cross(cell.vectors_nm[1], cell.vectors_nm[2])));
+                const double fractional_reach = cell_width_nm * std::sqrt(squared_norm(reciprocal)) /
+                                                determinant;
+                ratio = std::floor(1.0 / fractional_reach);
+            }
             constexpr double maximum_bins =
                 static_cast<double>(std::numeric_limits<long long>::max() / 2);
             if (!std::isfinite(ratio) || ratio > maximum_bins) {
@@ -186,8 +235,9 @@ std::optional<SpatialGrid> make_spatial_grid(const Frame& frame,
     grid.cells.reserve(selection.size());
     for (std::size_t position = 0; position < selection.size(); ++position) {
         const Vec3& coordinate = frame.coordinates[selection[position]];
-        const CellKey key = grid.box_nm ? periodic_key(coordinate, grid)
-                                        : *nonperiodic_key(coordinate, cell_width_nm);
+        const CellKey key = (grid.box_nm || grid.cell_nm)
+                                ? periodic_key(coordinate, grid)
+                                : *nonperiodic_key(coordinate, cell_width_nm);
         grid.cells[key].push_back(position);
     }
     return grid;
@@ -199,8 +249,9 @@ long long wrapped_bin(long long value, long long count) {
 }
 
 std::vector<std::size_t> spatial_candidates(const SpatialGrid& grid, const Vec3& coordinate) {
-    const auto center = grid.box_nm ? std::optional<CellKey>{periodic_key(coordinate, grid)}
-                                    : nonperiodic_key(coordinate, grid.cell_width_nm);
+    const auto center = (grid.box_nm || grid.cell_nm)
+                            ? std::optional<CellKey>{periodic_key(coordinate, grid)}
+                            : nonperiodic_key(coordinate, grid.cell_width_nm);
     if (!center) return {};
 
     std::array<CellKey, 27> neighbor_keys{};
@@ -209,7 +260,7 @@ std::vector<std::size_t> spatial_candidates(const SpatialGrid& grid, const Vec3&
         for (long long y = -1; y <= 1; ++y) {
             for (long long z = -1; z <= 1; ++z) {
                 CellKey key{(*center)[0] + x, (*center)[1] + y, (*center)[2] + z};
-                if (grid.box_nm) {
+                if (grid.box_nm || grid.cell_nm) {
                     for (std::size_t dimension = 0; dimension < 3; ++dimension) {
                         key[dimension] = wrapped_bin(key[dimension], grid.periodic_bins[dimension]);
                     }
@@ -273,7 +324,7 @@ bool visit_contacts(const Frame& frame,
         return visit_contacts_brute_force(frame, a, b, cell, threshold_nm,
                                           std::forward<Visitor>(visitor));
     }
-    if (!grid->box_nm) {
+    if (!grid->box_nm && !grid->cell_nm) {
         for (const std::size_t index : a) {
             if (!nonperiodic_key(frame.coordinates[index], threshold_nm)) {
                 return visit_contacts_brute_force(frame, a, b, cell, threshold_nm,
@@ -372,6 +423,137 @@ double rg_from_coordinates(const std::vector<Vec3>& coordinates,
     return std::sqrt(squared / total_weight);
 }
 } // namespace
+
+NeighborList::NeighborList(std::vector<std::size_t> selection_a,
+                           std::vector<std::size_t> selection_b,
+                           double cutoff_nm, double skin_nm)
+    : selection_a_(std::move(selection_a)), selection_b_(std::move(selection_b)),
+      cutoff_nm_(cutoff_nm), skin_nm_(skin_nm) {
+    if (!std::isfinite(cutoff_nm_) || cutoff_nm_ < 0.0) {
+        throw std::invalid_argument("Neighbor-list cutoff must be finite and non-negative");
+    }
+    if (!std::isfinite(skin_nm_) || skin_nm_ <= 0.0) {
+        throw std::invalid_argument("Neighbor-list skin must be finite and positive");
+    }
+    if (cutoff_nm_ > std::numeric_limits<double>::max() - skin_nm_) {
+        throw std::invalid_argument("Neighbor-list cutoff plus skin must be finite");
+    }
+    tracked_atoms_ = selection_a_;
+    tracked_atoms_.insert(tracked_atoms_.end(), selection_b_.begin(), selection_b_.end());
+    std::sort(tracked_atoms_.begin(), tracked_atoms_.end());
+    tracked_atoms_.erase(std::unique(tracked_atoms_.begin(), tracked_atoms_.end()),
+                         tracked_atoms_.end());
+}
+
+bool NeighborList::needs_rebuild(const Frame& frame) const {
+    if (!initialized_ || frame.coordinates.size() != reference_coordinate_count_) return true;
+    const auto cell = frame_cell(frame);
+    if (!same_cell(cell, reference_cell_)) return true;
+    const double displacement_limit = skin_nm_ * 0.5;
+    for (std::size_t position = 0; position < tracked_atoms_.size(); ++position) {
+        const std::size_t index = tracked_atoms_[position];
+        if (index >= frame.coordinates.size()) return true;
+        for (const double coordinate : frame.coordinates[index]) {
+            if (!std::isfinite(coordinate)) {
+                throw std::invalid_argument("Selected atom coordinates must be finite");
+            }
+        }
+        if (frame_distance(cell, frame.coordinates[index], reference_coordinates_[position]) >
+            displacement_limit) return true;
+    }
+    return false;
+}
+
+void NeighborList::rebuild(const Frame& frame) {
+    validate_indices(frame, selection_a_);
+    validate_indices(frame, selection_b_);
+    candidate_pairs_.clear();
+    const auto candidates = ensembleql::contacts(
+        frame, selection_a_, selection_b_, cutoff_nm_ + skin_nm_);
+    candidate_pairs_.reserve(candidates.size());
+    for (const Contact& candidate : candidates) {
+        candidate_pairs_.emplace_back(candidate.atom_a, candidate.atom_b);
+    }
+    reference_coordinates_.clear();
+    reference_coordinates_.reserve(tracked_atoms_.size());
+    for (const std::size_t index : tracked_atoms_) {
+        reference_coordinates_.push_back(frame.coordinates[index]);
+    }
+    reference_cell_ = frame_cell(frame);
+    reference_coordinate_count_ = frame.coordinates.size();
+    initialized_ = true;
+    ++rebuild_count_;
+}
+
+void NeighborList::update(const Frame& frame) {
+    if (needs_rebuild(frame)) rebuild(frame);
+}
+
+std::vector<Contact> NeighborList::contacts(const Frame& frame) {
+    update(frame);
+    const auto cell = frame_cell(frame);
+    const double tolerance = 1e-12 * std::max(1.0, std::abs(cutoff_nm_));
+    const double threshold = cutoff_nm_ > std::numeric_limits<double>::max() - tolerance
+                                 ? std::numeric_limits<double>::max()
+                                 : cutoff_nm_ + tolerance;
+    std::vector<Contact> result;
+    if (!cell) {
+        std::vector<double> separations(candidate_pairs_.size());
+#ifdef ENSEMBLEQL_HAS_OPENMP
+#pragma omp simd
+#endif
+        for (std::ptrdiff_t position = 0;
+             position < static_cast<std::ptrdiff_t>(candidate_pairs_.size()); ++position) {
+            const auto& pair = candidate_pairs_[static_cast<std::size_t>(position)];
+            const Vec3& first = frame.coordinates[pair.first];
+            const Vec3& second = frame.coordinates[pair.second];
+            const double dx = first[0] - second[0];
+            const double dy = first[1] - second[1];
+            const double dz = first[2] - second[2];
+            separations[static_cast<std::size_t>(position)] =
+                std::sqrt(dx * dx + dy * dy + dz * dz);
+        }
+        for (std::size_t position = 0; position < candidate_pairs_.size(); ++position) {
+            if (separations[position] <= threshold) {
+                result.push_back({candidate_pairs_[position].first,
+                                  candidate_pairs_[position].second,
+                                  separations[position]});
+            }
+        }
+        return result;
+    }
+    for (const auto& [first, second] : candidate_pairs_) {
+        const double separation = frame_distance(
+            cell, frame.coordinates[first], frame.coordinates[second]);
+        if (separation <= threshold) result.push_back({first, second, separation});
+    }
+    return result;
+}
+
+bool NeighborList::has_contact(const Frame& frame) {
+    update(frame);
+    bool distinct_pair = false;
+    for (const std::size_t first : selection_a_) {
+        if (std::any_of(selection_b_.begin(), selection_b_.end(),
+                        [first](std::size_t second) { return first != second; })) {
+            distinct_pair = true;
+            break;
+        }
+    }
+    if (!distinct_pair) {
+        throw std::invalid_argument("Selections contain no distinct atom pair");
+    }
+    const auto cell = frame_cell(frame);
+    const double tolerance = 1e-12 * std::max(1.0, std::abs(cutoff_nm_));
+    const double threshold = cutoff_nm_ > std::numeric_limits<double>::max() - tolerance
+                                 ? std::numeric_limits<double>::max()
+                                 : cutoff_nm_ + tolerance;
+    for (const auto& [first, second] : candidate_pairs_) {
+        if (frame_distance(cell, frame.coordinates[first], frame.coordinates[second]) <=
+            threshold) return true;
+    }
+    return false;
+}
 
 double distance(const Vec3& a, const Vec3& b) {
     const double dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];

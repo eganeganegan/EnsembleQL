@@ -5,6 +5,7 @@ option(ENSEMBLEQL_BUILD_PYTHON "Build the pybind11 extension" ON)
 option(ENSEMBLEQL_BUILD_TESTS "Build C++ tests" ON)
 option(ENSEMBLEQL_BUILD_BENCHMARKS "Build microbenchmarks" OFF)
 option(ENSEMBLEQL_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+option(ENSEMBLEQL_ENABLE_OPENMP "Enable OpenMP acceleration when available" ON)
 option(ENSEMBLEQL_ENABLE_CHEMFILES "Enable chemfiles trajectory backends when available" ON)
 option(ENSEMBLEQL_FETCH_CHEMFILES "Fetch chemfiles 0.10.4 when it is not installed" OFF)
 option(ENSEMBLEQL_REQUIRE_CHEMFILES "Fail configuration when chemfiles is unavailable" OFF)
@@ -16,6 +17,7 @@ add_library(ensembleql_core
     cpp/src/pdb_reader.cpp
     cpp/src/selection.cpp
     cpp/src/geometry.cpp
+    cpp/src/molecular.cpp
     cpp/src/observable.cpp
     cpp/src/event.cpp
     cpp/src/temporal.cpp
@@ -28,6 +30,16 @@ target_include_directories(ensembleql_core PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/cpp/include>
     $<INSTALL_INTERFACE:include>)
 target_compile_features(ensembleql_core PUBLIC cxx_std_20)
+if(ENSEMBLEQL_ENABLE_OPENMP)
+  find_package(OpenMP QUIET COMPONENTS CXX)
+  if(OpenMP_CXX_FOUND)
+    target_link_libraries(ensembleql_core PUBLIC OpenMP::OpenMP_CXX)
+    target_compile_definitions(ensembleql_core PUBLIC ENSEMBLEQL_HAS_OPENMP=1)
+    message(STATUS "OpenMP acceleration enabled")
+  else()
+    message(STATUS "OpenMP not found; using serial kernels")
+  endif()
+endif()
 if(MSVC)
   target_compile_options(ensembleql_core PRIVATE /W4)
   if(ENSEMBLEQL_WARNINGS_AS_ERRORS)

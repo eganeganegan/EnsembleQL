@@ -29,4 +29,14 @@ The geometry implementation allows only a tiny floating-point tolerance at inclu
 
 `FOLLOWED_BY` pairs each left event with the earliest right event whose start is at or after the left event's end and whose non-negative gap satisfies `WITHIN`, when present. A shared sampled endpoint therefore has a zero-ps gap.
 
+Unparenthesized temporal operators chain left-associatively. Thus `A FOLLOWED_BY B WITHIN 1ps FOLLOWED_BY C WITHIN 2ps` first constructs the `A`→`B` events and then joins those to `C`. Parentheses can make any alternative grouping explicit. Frame-level `AND` binds more tightly than temporal operators.
+
+Additional interval operators have the following definitions:
+
+- `DURING` returns pairs where the closed left interval is contained in the closed right interval, including equal endpoints.
+- `PRECEDES` is the strict counterpart to `BEFORE`: the left event must end before the right event starts, so touching intervals do not qualify.
+- `IMMEDIATELY_FOLLOWED_BY` requires the left end and right start to be the same sampled timestamp, within floating-point time tolerance.
+- `UNTIL` pairs each left event with the earliest right event beginning at or after the left event ends. It describes observed event ordering and does not infer an unobserved state in any sampling gap.
+- `REPEATS >= N` emits each sliding window of `N` consecutive source events. `WITHIN` optionally limits the inclusive span from the first event's start through the last event's end.
+
 These definitions are deliberately explicit and covered by native golden tests. Alternative interval estimators may be added later, but must be opt-in and labeled in result metadata.

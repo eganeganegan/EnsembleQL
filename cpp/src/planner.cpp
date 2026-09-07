@@ -1,4 +1,5 @@
 #include "ensembleql/planner.hpp"
+#include "ensembleql/molecular.hpp"
 #include "ensembleql/parser.hpp"
 #include "ensembleql/selection.hpp"
 
@@ -16,7 +17,10 @@ std::string pair_key(std::string name, std::string a, std::string b, const std::
 }
 
 bool frame_predicate(const ast::ExprPtr& expression) {
-    if (expression->kind == ast::Kind::Contact || expression->kind == ast::Kind::Comparison) return true;
+    if (expression->kind == ast::Kind::Contact || expression->kind == ast::Kind::HydrogenBond ||
+        expression->kind == ast::Kind::Helix || expression->kind == ast::Kind::SaltBridge ||
+        expression->kind == ast::Kind::AromaticStacking ||
+        expression->kind == ast::Kind::Comparison) return true;
     if (expression->kind == ast::Kind::And || expression->kind == ast::Kind::Or) {
         const auto& value = static_cast<const ast::BinaryExpr&>(*expression);
         return frame_predicate(value.left) && frame_predicate(value.right);
@@ -29,8 +33,14 @@ bool event_expression(const ast::ExprPtr& expression) {
     if (expression->kind == ast::Kind::For) {
         return event_expression(static_cast<const ast::ForExpr&>(*expression).operand);
     }
-    if (expression->kind == ast::Kind::FollowedBy || expression->kind == ast::Kind::Overlaps ||
-        expression->kind == ast::Kind::Before || expression->kind == ast::Kind::After) {
+    if (expression->kind == ast::Kind::Repeats) {
+        return event_expression(static_cast<const ast::RepeatsExpr&>(*expression).operand);
+    }
+    if (expression->kind == ast::Kind::FollowedBy ||
+        expression->kind == ast::Kind::ImmediatelyFollowedBy ||
+        expression->kind == ast::Kind::Overlaps || expression->kind == ast::Kind::During ||
+        expression->kind == ast::Kind::Until || expression->kind == ast::Kind::Before ||
+        expression->kind == ast::Kind::Precedes || expression->kind == ast::Kind::After) {
         const auto& value = static_cast<const ast::BinaryExpr&>(*expression);
         return event_expression(value.left) && event_expression(value.right);
     }
@@ -76,25 +86,90 @@ std::string render(const ast::ExprPtr& expression) {
             return "RG(" + value.selection +
                    (value.mass_weighted ? ", mass_weighted=true" : "") + ")";
         }
+        case ast::Kind::HydrogenBond: {
+            const auto& value = static_cast<const ast::HydrogenBondExpr&>(*expression);
+            return "HBOND(" + value.donors + ", " + value.acceptors +
+                   ", distance=" + number(value.distance_cutoff.nm) + "nm, min_angle=" +
+                   number(value.minimum_angle.degrees) + "deg)";
+        }
+        case ast::Kind::Dihedral: {
+            const auto& value = static_cast<const ast::DihedralExpr&>(*expression);
+            return "DIHEDRAL(" + value.selections[0] + ", " + value.selections[1] + ", " +
+                   value.selections[2] + ", " + value.selections[3] + ")";
+        }
+        case ast::Kind::Helix: {
+            const auto& value = static_cast<const ast::HelixExpr&>(*expression);
+            return "HELIX(" + value.selection + ", minimum_fraction=" +
+                   number(value.minimum_fraction) + ")";
+        }
+        case ast::Kind::Sasa: {
+            const auto& value = static_cast<const ast::SasaExpr&>(*expression);
+            return "SASA(" + value.selection + ", probe=" + number(value.probe.nm) +
+                   "nm, points=" + std::to_string(value.points) + ")";
+        }
+        case ast::Kind::Rmsd: {
+            const auto& value = static_cast<const ast::RmsdExpr&>(*expression);
+            return "RMSD(" + value.selection + ", align=" +
+                   std::string(value.align ? "true" : "false") + ")";
+        }
+        case ast::Kind::CoordinationNumber: {
+            const auto& value = static_cast<const ast::CoordinationNumberExpr&>(*expression);
+            return "COORDINATION_NUMBER(" + value.centers + ", " + value.neighbors +
+                   ", cutoff=" + number(value.cutoff.nm) + "nm)";
+        }
+        case ast::Kind::SaltBridge: {
+            const auto& value = static_cast<const ast::SaltBridgeExpr&>(*expression);
+            return "SALT_BRIDGE(" + value.positive + ", " + value.negative +
+                   ", cutoff=" + number(value.cutoff.nm) + "nm)";
+        }
+        case ast::Kind::AromaticStacking: {
+            const auto& value = static_cast<const ast::AromaticStackingExpr&>(*expression);
+            return "AROMATIC_STACKING(" + value.first_ring + ", " + value.second_ring +
+                   ", distance=" + number(value.centroid_cutoff.nm) + "nm, max_angle=" +
+                   number(value.maximum_angle.degrees) + "deg)";
+        }
+        case ast::Kind::SurfaceDistance: {
+            const auto& value = static_cast<const ast::SurfaceDistanceExpr&>(*expression);
+            return "SURFACE_DISTANCE(" + value.molecule + ", " + value.surface + ")";
+        }
+        case ast::Kind::Orientation: {
+            const auto& value = static_cast<const ast::OrientationExpr&>(*expression);
+            return "ORIENTATION(" + value.origin + ", " + value.target + ", axis=" +
+                   std::string(1, value.axis) + ")";
+        }
         case ast::Kind::Comparison: {
             const auto& value = static_cast<const ast::ComparisonExpr&>(*expression);
+            const std::string unit = value.dimension == ast::ValueDimension::Distance ? "nm" :
+                value.dimension == ast::ValueDimension::Angle ? "deg" :
+                value.dimension == ast::ValueDimension::Area ? "nm2" : "";
             return render(value.operand) + " " + comparison_name(value.op) + " " + number(value.threshold) +
-                   (value.distance_threshold ? "nm" : "");
+                   unit;
         }
         case ast::Kind::For: {
             const auto& value = static_cast<const ast::ForExpr&>(*expression);
             return render(value.operand) + " FOR >= " + number(value.duration.ps) + "ps";
+        }
+        case ast::Kind::Repeats: {
+            const auto& value = static_cast<const ast::RepeatsExpr&>(*expression);
+            return render(value.operand) + " REPEATS >= " + std::to_string(value.count) +
+                   (value.within ? " WITHIN " + number(value.within->ps) + "ps" : "");
         }
         case ast::Kind::FollowedBy: {
             const auto& value = static_cast<const ast::FollowedByExpr&>(*expression);
             return "(" + render(value.left) + " FOLLOWED_BY " + render(value.right) +
                    (value.within ? " WITHIN " + number(value.within->ps) + "ps" : "") + ")";
         }
-        case ast::Kind::Overlaps: case ast::Kind::Before: case ast::Kind::After:
+        case ast::Kind::ImmediatelyFollowedBy: case ast::Kind::Overlaps:
+        case ast::Kind::During: case ast::Kind::Until: case ast::Kind::Before:
+        case ast::Kind::Precedes: case ast::Kind::After:
         case ast::Kind::And: case ast::Kind::Or: {
             const auto& value = static_cast<const ast::BinaryExpr&>(*expression);
-            const std::string operation = expression->kind == ast::Kind::Overlaps ? "OVERLAPS" :
+            const std::string operation = expression->kind == ast::Kind::ImmediatelyFollowedBy ? "IMMEDIATELY_FOLLOWED_BY" :
+                expression->kind == ast::Kind::Overlaps ? "OVERLAPS" :
+                expression->kind == ast::Kind::During ? "DURING" :
+                expression->kind == ast::Kind::Until ? "UNTIL" :
                 expression->kind == ast::Kind::Before ? "BEFORE" :
+                expression->kind == ast::Kind::Precedes ? "PRECEDES" :
                 expression->kind == ast::Kind::After ? "AFTER" :
                 expression->kind == ast::Kind::And ? "AND" : "OR";
             return "(" + render(value.left) + " " + operation + " " + render(value.right) + ")";
@@ -109,11 +184,26 @@ std::string kind_name(ast::Kind kind) {
         case ast::Kind::Distance: return "DISTANCE";
         case ast::Kind::ContactCount: return "CONTACT_COUNT";
         case ast::Kind::Rg: return "RG";
+        case ast::Kind::HydrogenBond: return "HBOND";
+        case ast::Kind::Dihedral: return "DIHEDRAL";
+        case ast::Kind::Helix: return "HELIX";
+        case ast::Kind::Sasa: return "SASA";
+        case ast::Kind::Rmsd: return "RMSD";
+        case ast::Kind::CoordinationNumber: return "COORDINATION_NUMBER";
+        case ast::Kind::SaltBridge: return "SALT_BRIDGE";
+        case ast::Kind::AromaticStacking: return "AROMATIC_STACKING";
+        case ast::Kind::SurfaceDistance: return "SURFACE_DISTANCE";
+        case ast::Kind::Orientation: return "ORIENTATION";
         case ast::Kind::Comparison: return "COMPARISON";
         case ast::Kind::For: return "FOR";
+        case ast::Kind::Repeats: return "REPEATS";
         case ast::Kind::FollowedBy: return "FOLLOWED_BY";
+        case ast::Kind::ImmediatelyFollowedBy: return "IMMEDIATELY_FOLLOWED_BY";
         case ast::Kind::Overlaps: return "OVERLAPS";
+        case ast::Kind::During: return "DURING";
+        case ast::Kind::Until: return "UNTIL";
         case ast::Kind::Before: return "BEFORE";
+        case ast::Kind::Precedes: return "PRECEDES";
         case ast::Kind::After: return "AFTER";
         case ast::Kind::And: return "AND";
         case ast::Kind::Or: return "OR";
@@ -134,8 +224,18 @@ void collect_explanation(const ast::ExprPtr& expression, std::vector<std::string
         temporal.push_back("FOR >= " + number(value.duration.ps) + "ps");
         return;
     }
-    if (expression->kind == ast::Kind::FollowedBy || expression->kind == ast::Kind::Overlaps ||
-        expression->kind == ast::Kind::Before || expression->kind == ast::Kind::After) {
+    if (expression->kind == ast::Kind::Repeats) {
+        const auto& value = static_cast<const ast::RepeatsExpr&>(*expression);
+        collect_explanation(value.operand, predicates, temporal);
+        temporal.push_back("REPEATS >= " + std::to_string(value.count) +
+                           (value.within ? " WITHIN " + number(value.within->ps) + "ps" : ""));
+        return;
+    }
+    if (expression->kind == ast::Kind::FollowedBy ||
+        expression->kind == ast::Kind::ImmediatelyFollowedBy ||
+        expression->kind == ast::Kind::Overlaps || expression->kind == ast::Kind::During ||
+        expression->kind == ast::Kind::Until || expression->kind == ast::Kind::Before ||
+        expression->kind == ast::Kind::Precedes || expression->kind == ast::Kind::After) {
         const auto& value = static_cast<const ast::BinaryExpr&>(*expression);
         collect_explanation(value.left, predicates, temporal);
         collect_explanation(value.right, predicates, temporal);
@@ -195,6 +295,83 @@ std::shared_ptr<PlanNode> build(const ast::ExprPtr& expression, const Topology& 
                                (value.mass_weighted ? ",mass_weighted=true" : "") + ")");
             break;
         }
+        case ast::Kind::HydrogenBond: {
+            const auto& value = static_cast<const ast::HydrogenBondExpr&>(*expression);
+            const auto donors = require(value.donors); require(value.acceptors);
+            bool has_bonded_hydrogen = false;
+            for (const std::size_t donor : donors) {
+                for (const Bond& bond : topology.bonds()) {
+                    const std::size_t neighbor = bond[0] == donor ? bond[1] :
+                        bond[1] == donor ? bond[0] : topology.size();
+                    if (neighbor < topology.size() && topology.atoms()[neighbor].element == "H") {
+                        has_bonded_hydrogen = true;
+                    }
+                }
+            }
+            if (!has_bonded_hydrogen) {
+                throw QueryError("HBOND donor selection has no explicitly bonded hydrogen; provide PDB CONECT bonds");
+            }
+            observables.insert(render(expression));
+            break;
+        }
+        case ast::Kind::Dihedral: {
+            const auto& value = static_cast<const ast::DihedralExpr&>(*expression);
+            for (const auto& selection : value.selections) {
+                if (require(selection).size() != 1) {
+                    throw QueryError("Each DIHEDRAL argument must select exactly one atom");
+                }
+            }
+            observables.insert(render(expression)); break;
+        }
+        case ast::Kind::Helix: {
+            const auto& value = static_cast<const ast::HelixExpr&>(*expression);
+            require(value.selection); observables.insert(render(expression)); break;
+        }
+        case ast::Kind::Sasa: {
+            const auto& value = static_cast<const ast::SasaExpr&>(*expression);
+            require(value.selection);
+            for (const Atom& atom : topology.atoms()) {
+                if (!sasa_element_supported(atom.element)) {
+                    throw QueryError("SASA has no van der Waals radius for atom " +
+                                     std::to_string(atom.index) + " (element '" +
+                                     atom.element + "'); all atoms occlude solvent");
+                }
+            }
+            observables.insert(render(expression)); break;
+        }
+        case ast::Kind::Rmsd: {
+            const auto& value = static_cast<const ast::RmsdExpr&>(*expression);
+            require(value.selection); observables.insert(render(expression)); break;
+        }
+        case ast::Kind::CoordinationNumber: {
+            const auto& value = static_cast<const ast::CoordinationNumberExpr&>(*expression);
+            require(value.centers); require(value.neighbors);
+            observables.insert(render(expression)); break;
+        }
+        case ast::Kind::SaltBridge: {
+            const auto& value = static_cast<const ast::SaltBridgeExpr&>(*expression);
+            require(value.positive); require(value.negative);
+            observables.insert(pair_key("SALT_BRIDGE", value.positive, value.negative,
+                                        ",cutoff=" + number(value.cutoff.nm) + "nm")); break;
+        }
+        case ast::Kind::AromaticStacking: {
+            const auto& value = static_cast<const ast::AromaticStackingExpr&>(*expression);
+            if (require(value.first_ring).size() < 3 || require(value.second_ring).size() < 3) {
+                throw QueryError("AROMATIC_STACKING requires at least three atoms in each ring selection");
+            }
+            observables.insert(pair_key("AROMATIC_STACKING", value.first_ring, value.second_ring,
+                ",distance=" + number(value.centroid_cutoff.nm) + "nm,angle=" +
+                number(value.maximum_angle.degrees) + "deg")); break;
+        }
+        case ast::Kind::SurfaceDistance: {
+            const auto& value = static_cast<const ast::SurfaceDistanceExpr&>(*expression);
+            require(value.molecule); require(value.surface);
+            observables.insert(pair_key("SURFACE_DISTANCE", value.molecule, value.surface)); break;
+        }
+        case ast::Kind::Orientation: {
+            const auto& value = static_cast<const ast::OrientationExpr&>(*expression);
+            require(value.origin); require(value.target); observables.insert(render(expression)); break;
+        }
         case ast::Kind::Comparison: {
             const auto& value = static_cast<const ast::ComparisonExpr&>(*expression);
             node->inputs.push_back(build(value.operand, topology, selections, observables)); break;
@@ -204,13 +381,23 @@ std::shared_ptr<PlanNode> build(const ast::ExprPtr& expression, const Topology& 
             if (!event_expression(value.operand)) throw QueryError("FOR requires an event-producing expression");
             node->inputs.push_back(build(value.operand, topology, selections, observables)); break;
         }
-        case ast::Kind::FollowedBy: case ast::Kind::Overlaps: case ast::Kind::Before:
-        case ast::Kind::After: {
+        case ast::Kind::Repeats: {
+            const auto& value = static_cast<const ast::RepeatsExpr&>(*expression);
+            if (!event_expression(value.operand)) throw QueryError("REPEATS requires an event-producing expression");
+            node->inputs.push_back(build(value.operand, topology, selections, observables)); break;
+        }
+        case ast::Kind::FollowedBy: case ast::Kind::ImmediatelyFollowedBy:
+        case ast::Kind::Overlaps: case ast::Kind::During: case ast::Kind::Until:
+        case ast::Kind::Before: case ast::Kind::Precedes: case ast::Kind::After: {
             const auto& value = static_cast<const ast::BinaryExpr&>(*expression);
             if (!event_expression(value.left) || !event_expression(value.right)) {
                 const std::string name = expression->kind == ast::Kind::FollowedBy ? "FOLLOWED_BY" :
+                    expression->kind == ast::Kind::ImmediatelyFollowedBy ? "IMMEDIATELY_FOLLOWED_BY" :
                     expression->kind == ast::Kind::Overlaps ? "OVERLAPS" :
-                    expression->kind == ast::Kind::Before ? "BEFORE" : "AFTER";
+                    expression->kind == ast::Kind::During ? "DURING" :
+                    expression->kind == ast::Kind::Until ? "UNTIL" :
+                    expression->kind == ast::Kind::Before ? "BEFORE" :
+                    expression->kind == ast::Kind::Precedes ? "PRECEDES" : "AFTER";
                 throw QueryError(name + " requires event-producing expressions");
             }
             node->inputs.push_back(build(value.left, topology, selections, observables));

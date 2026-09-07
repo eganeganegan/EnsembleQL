@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <optional>
 #include <regex>
 #include <sstream>
@@ -37,9 +38,10 @@ struct ContactOptions {
 };
 
 ContactOptions contact_options(const std::vector<std::string>& args, const std::string& observable,
-                               bool allow_mode) {
+                               bool allow_mode, Distance default_cutoff = {0.45}) {
     if (args.size() < 2) throw QueryError(observable + " requires two selections");
     ContactOptions options;
+    options.cutoff = default_cutoff;
     bool cutoff_seen = false;
     bool mode_seen = false;
     for (std::size_t index = 2; index < args.size(); ++index) {
@@ -70,6 +72,52 @@ ContactOptions contact_options(const std::vector<std::string>& args, const std::
         }
     }
     return options;
+}
+
+struct DistanceAngleOptions {
+    Distance distance;
+    Angle angle;
+};
+
+DistanceAngleOptions distance_angle_options(const std::vector<std::string>& args,
+                                            const std::string& observable,
+                                            Distance default_distance,
+                                            Angle default_angle,
+                                            const std::string& angle_key) {
+    if (args.size() < 2) throw QueryError(observable + " requires two selections");
+    DistanceAngleOptions result{default_distance, default_angle};
+    bool distance_seen = false, angle_seen = false;
+    for (std::size_t index = 2; index < args.size(); ++index) {
+        const auto equals = args[index].find('=');
+        if (equals == std::string::npos) throw QueryError("Expected named " + observable + " option");
+        const std::string key = upper(trim(args[index].substr(0, equals)));
+        const std::string value = trim(args[index].substr(equals + 1));
+        if (key == "DISTANCE" || key == "CUTOFF") {
+            if (distance_seen) throw QueryError("Duplicate " + observable + " distance option");
+            result.distance = parse_distance(value); distance_seen = true;
+        } else if (key == upper(angle_key) || key == "ANGLE") {
+            if (angle_seen) throw QueryError("Duplicate " + observable + " angle option");
+            result.angle = parse_angle(value); angle_seen = true;
+        } else {
+            throw QueryError("Unknown " + observable + " option: " + trim(args[index].substr(0, equals)));
+        }
+    }
+    if (result.distance.nm < 0.0 || result.angle.degrees < 0.0 || result.angle.degrees > 180.0) {
+        throw QueryError("Invalid " + observable + " distance or angle criterion");
+    }
+    return result;
+}
+
+bool boolean_option(const std::vector<std::string>& args, std::size_t index,
+                    const std::string& observable, const std::string& expected_key) {
+    const auto equals = args[index].find('=');
+    if (equals == std::string::npos || upper(trim(args[index].substr(0, equals))) != expected_key) {
+        throw QueryError("Unknown " + observable + " option: " + trim(args[index].substr(0, equals)));
+    }
+    const std::string value = upper(trim(args[index].substr(equals + 1)));
+    if (value == "TRUE") return true;
+    if (value == "FALSE") return false;
+    throw QueryError(observable + " " + trim(args[index].substr(0, equals)) + " option must be true or false");
 }
 
 bool rg_mass_weighted(const std::vector<std::string>& args) {
@@ -127,10 +175,18 @@ public:
     }
     std::string quantity(bool unit_required) {
         skip();
-        const std::regex pattern(unit_required ? R"(^([+-]?[0-9]+(?:\.[0-9]+)?\s*[A-Za-z]+))" : R"(^([+-]?[0-9]+(?:\.[0-9]+)?(?:\s*[A-Za-z]+)?))");
+        const std::regex pattern(unit_required ? R"(^([+-]?[0-9]+(?:\.[0-9]+)?\s*[A-Za-z][A-Za-z0-9]*))" : R"(^([+-]?[0-9]+(?:\.[0-9]+)?))");
         std::smatch match; const std::string rest = text_.substr(position_);
         if (!std::regex_search(rest, match, pattern)) throw QueryError("Expected numeric quantity near: " + remaining());
         position_ += match[1].length(); return trim(match[1].str());
+    }
+    std::string integer() {
+        skip();
+        const auto start = position_;
+        while (position_ < text_.size() &&
+               std::isdigit(static_cast<unsigned char>(text_[position_]))) ++position_;
+        if (start == position_) throw QueryError("Expected positive integer near: " + remaining());
+        return text_.substr(start, position_ - start);
     }
     std::string remaining() const { return trim(text_.substr(position_)); }
 private:
@@ -159,25 +215,124 @@ ast::ExprPtr parse_primary(Cursor& cursor) {
             result = std::make_shared<ast::ContactCountExpr>(args[0], args[1], options.cutoff, options.mode);
         } else if (name == "RG") {
             result = std::make_shared<ast::RgExpr>(args[0], rg_mass_weighted(args));
+        } else if (name == "HBOND") {
+            const auto options = distance_angle_options(args, name, {0.35}, {150.0}, "MIN_ANGLE");
+            result = std::make_shared<ast::HydrogenBondExpr>(args[0], args[1], options.distance, options.angle);
+        } else if (name == "DIHEDRAL") {
+            if (args.size() != 4) throw QueryError("DIHEDRAL requires exactly four single-atom selections");
+            result = std::make_shared<ast::DihedralExpr>(args[0], args[1], args[2], args[3]);
+        } else if (name == "HELIX") {
+            if (args.empty() || args.size() > 2) throw QueryError("HELIX requires a selection and optional minimum_fraction");
+            double fraction = 0.5;
+            if (args.size() == 2) {
+                const auto equals = args[1].find('=');
+                if (equals == std::string::npos || upper(trim(args[1].substr(0, equals))) != "MINIMUM_FRACTION") {
+                    throw QueryError("Unknown HELIX option: " + trim(args[1].substr(0, equals)));
+                }
+                const std::string value = trim(args[1].substr(equals + 1));
+                std::size_t consumed{};
+                fraction = std::stod(value, &consumed);
+                if (consumed != value.size()) throw QueryError("HELIX minimum_fraction must be numeric");
+                if (!std::isfinite(fraction) || fraction < 0.0 || fraction > 1.0) {
+                    throw QueryError("HELIX minimum_fraction must be between 0 and 1");
+                }
+            }
+            result = std::make_shared<ast::HelixExpr>(args[0], fraction);
+        } else if (name == "SASA") {
+            if (args.empty() || args.size() > 3) throw QueryError("SASA requires a selection and optional probe/points options");
+            Distance probe{0.14}; std::size_t points = 96;
+            bool probe_seen = false, points_seen = false;
+            for (std::size_t index = 1; index < args.size(); ++index) {
+                const auto equals = args[index].find('=');
+                if (equals == std::string::npos) throw QueryError("Expected named SASA option");
+                const std::string key = upper(trim(args[index].substr(0, equals)));
+                const std::string value = trim(args[index].substr(equals + 1));
+                if (key == "PROBE") {
+                    if (probe_seen) throw QueryError("Duplicate SASA probe option");
+                    probe = parse_distance(value); probe_seen = true;
+                }
+                else if (key == "POINTS") {
+                    if (points_seen) throw QueryError("Duplicate SASA points option");
+                    std::size_t consumed{};
+                    const auto parsed = std::stoull(value, &consumed);
+                    if (consumed != value.size()) throw QueryError("SASA points must be a positive integer");
+                    points = static_cast<std::size_t>(parsed);
+                    points_seen = true;
+                } else throw QueryError("Unknown SASA option: " + key);
+            }
+            if (probe.nm < 0.0 || points < 6) throw QueryError("SASA requires a non-negative probe and at least six points");
+            result = std::make_shared<ast::SasaExpr>(args[0], probe, points);
+        } else if (name == "RMSD") {
+            if (args.empty() || args.size() > 2) throw QueryError("RMSD requires a selection and optional align option");
+            result = std::make_shared<ast::RmsdExpr>(args[0], args.size() == 1 ? true : boolean_option(args, 1, name, "ALIGN"));
+        } else if (name == "COORDINATION_NUMBER") {
+            const auto options = contact_options(args, name, false, {0.35});
+            result = std::make_shared<ast::CoordinationNumberExpr>(args[0], args[1], options.cutoff);
+        } else if (name == "SALT_BRIDGE") {
+            const auto options = contact_options(args, name, false, {0.4});
+            result = std::make_shared<ast::SaltBridgeExpr>(args[0], args[1], options.cutoff);
+        } else if (name == "AROMATIC_STACKING") {
+            const auto options = distance_angle_options(args, name, {0.55}, {30.0}, "MAX_ANGLE");
+            if (options.angle.degrees > 90.0) throw QueryError("AROMATIC_STACKING maximum angle must not exceed 90 degrees");
+            result = std::make_shared<ast::AromaticStackingExpr>(args[0], args[1], options.distance, options.angle);
+        } else if (name == "SURFACE_DISTANCE") {
+            if (args.size() != 2) throw QueryError("SURFACE_DISTANCE requires exactly two selections");
+            result = std::make_shared<ast::SurfaceDistanceExpr>(args[0], args[1]);
+        } else if (name == "ORIENTATION") {
+            if (args.size() != 3) throw QueryError("ORIENTATION requires two selections and axis=x|y|z");
+            const auto equals = args[2].find('=');
+            if (equals == std::string::npos || upper(trim(args[2].substr(0, equals))) != "AXIS") {
+                throw QueryError("ORIENTATION third argument must be axis=x|y|z");
+            }
+            const std::string axis = upper(trim(args[2].substr(equals + 1)));
+            if (axis.size() != 1 || (axis[0] != 'X' && axis[0] != 'Y' && axis[0] != 'Z')) {
+                throw QueryError("ORIENTATION axis must be x, y, or z");
+            }
+            result = std::make_shared<ast::OrientationExpr>(args[0], args[1], axis[0]);
         } else {
             throw QueryError("Unknown observable: " + name);
         }
         if (auto op = cursor.comparison()) {
-            if (name == "CONTACT") throw QueryError("CONTACT is already boolean and cannot be compared");
-            const bool dimensionless = name == "CONTACT_COUNT";
-            const std::string quantity = cursor.quantity(!dimensionless);
+            if (name == "CONTACT" || name == "HBOND" || name == "HELIX" ||
+                name == "SALT_BRIDGE" || name == "AROMATIC_STACKING") {
+                throw QueryError(name + " is already boolean and cannot be compared");
+            }
+            ast::ValueDimension dimension = ast::ValueDimension::Distance;
+            if (name == "CONTACT_COUNT" || name == "COORDINATION_NUMBER") dimension = ast::ValueDimension::Unitless;
+            else if (name == "DIHEDRAL" || name == "ORIENTATION") dimension = ast::ValueDimension::Angle;
+            else if (name == "SASA") dimension = ast::ValueDimension::Area;
+            const std::string quantity = cursor.quantity(dimension != ast::ValueDimension::Unitless);
             double threshold{};
-            if (dimensionless) {
-                if (quantity.find_first_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz") != std::string::npos) throw QueryError("CONTACT_COUNT threshold must be unitless");
+            if (dimension == ast::ValueDimension::Unitless) {
                 threshold = std::stod(quantity);
-            } else threshold = parse_distance(quantity).nm;
-            result = std::make_shared<ast::ComparisonExpr>(result, *op, threshold, !dimensionless);
+            } else if (dimension == ast::ValueDimension::Distance) threshold = parse_distance(quantity).nm;
+            else if (dimension == ast::ValueDimension::Angle) threshold = parse_angle(quantity).degrees;
+            else threshold = parse_area(quantity).nm2;
+            result = std::make_shared<ast::ComparisonExpr>(result, *op, threshold, dimension);
         }
     }
     if (cursor.consume_word("FOR")) {
         const auto op = cursor.comparison();
         if (!op || *op != ast::ComparisonOp::GreaterEqual) throw QueryError("FOR currently requires '>=' followed by a time quantity");
         result = std::make_shared<ast::ForExpr>(result, parse_duration(cursor.quantity(true)));
+    }
+    if (cursor.consume_word("REPEATS")) {
+        const auto op = cursor.comparison();
+        if (!op || *op != ast::ComparisonOp::GreaterEqual) {
+            throw QueryError("REPEATS requires '>=' followed by a positive integer count");
+        }
+        const std::string quantity = cursor.integer();
+        std::size_t count{};
+        try {
+            std::size_t consumed{};
+            count = static_cast<std::size_t>(std::stoull(quantity, &consumed));
+            if (consumed != quantity.size() || count == 0) throw std::invalid_argument("count");
+        } catch (const std::exception&) {
+            throw QueryError("REPEATS count must be a unitless positive integer");
+        }
+        std::optional<Duration> within;
+        if (cursor.consume_word("WITHIN")) within = parse_duration(cursor.quantity(true));
+        result = std::make_shared<ast::RepeatsExpr>(result, count, within);
     }
     return result;
 }
@@ -196,15 +351,30 @@ ast::ExprPtr parse_or(Cursor& cursor) {
 
 ast::ExprPtr parse_expr(Cursor& cursor) {
     auto left = parse_or(cursor);
-    if (cursor.consume_word("FOLLOWED_BY")) {
-        auto right = parse_or(cursor);
-        std::optional<Duration> within;
-        if (cursor.consume_word("WITHIN")) within = parse_duration(cursor.quantity(true));
-        return std::make_shared<ast::FollowedByExpr>(left, right, within);
+    while (true) {
+        if (cursor.consume_word("FOLLOWED_BY")) {
+            auto right = parse_or(cursor);
+            std::optional<Duration> within;
+            if (cursor.consume_word("WITHIN")) within = parse_duration(cursor.quantity(true));
+            left = std::make_shared<ast::FollowedByExpr>(left, right, within);
+        } else if (cursor.consume_word("IMMEDIATELY_FOLLOWED_BY")) {
+            left = std::make_shared<ast::ImmediatelyFollowedByExpr>(left, parse_or(cursor));
+        } else if (cursor.consume_word("OVERLAPS")) {
+            left = std::make_shared<ast::OverlapsExpr>(left, parse_or(cursor));
+        } else if (cursor.consume_word("DURING")) {
+            left = std::make_shared<ast::DuringExpr>(left, parse_or(cursor));
+        } else if (cursor.consume_word("UNTIL")) {
+            left = std::make_shared<ast::UntilExpr>(left, parse_or(cursor));
+        } else if (cursor.consume_word("BEFORE")) {
+            left = std::make_shared<ast::BeforeExpr>(left, parse_or(cursor));
+        } else if (cursor.consume_word("PRECEDES")) {
+            left = std::make_shared<ast::PrecedesExpr>(left, parse_or(cursor));
+        } else if (cursor.consume_word("AFTER")) {
+            left = std::make_shared<ast::AfterExpr>(left, parse_or(cursor));
+        } else {
+            break;
+        }
     }
-    if (cursor.consume_word("OVERLAPS")) return std::make_shared<ast::OverlapsExpr>(left, parse_or(cursor));
-    if (cursor.consume_word("BEFORE")) return std::make_shared<ast::BeforeExpr>(left, parse_or(cursor));
-    if (cursor.consume_word("AFTER")) return std::make_shared<ast::AfterExpr>(left, parse_or(cursor));
     return left;
 }
 } // namespace

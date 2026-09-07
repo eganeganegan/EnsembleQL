@@ -1,6 +1,7 @@
 #include "ensembleql/engine.hpp"
 #include "ensembleql/event.hpp"
 #include "ensembleql/geometry.hpp"
+#include "ensembleql/molecular.hpp"
 #include "ensembleql/parser.hpp"
 #include "ensembleql/planner.hpp"
 #include "ensembleql/selection.hpp"
@@ -104,6 +105,8 @@ void test_units() {
     check(close(parse_distance("2 nm").nm, 2.0), "nm conversion");
     check(close(parse_duration("5ns").ps, 5000.0), "ns conversion");
     check(close(parse_duration("10fs").ps, 0.01), "fs conversion");
+    check(close(parse_angle("3.141592653589793rad").degrees, 180.0), "radian conversion");
+    check(close(parse_area("100A2").nm2, 1.0), "square angstrom conversion");
     check(close(parse_duration("2NS").ps, 2000.0), "case-insensitive time unit");
     check(close(parse_distance("2a").nm, 0.2), "case-insensitive angstrom unit");
     check_throws([&] { (void)parse_distance("2ns"); }, "distance rejects time unit");
@@ -301,7 +304,26 @@ void test_geometry() {
     large_frame.cell_nm = large_triclinic_cell;
     const auto triclinic_expected = reference_contacts(large_frame, large_a, large_b, 0.9);
     check_same_contacts(contacts(large_frame, large_a, large_b, 0.9), triclinic_expected,
-                        "triclinic fallback matches brute force");
+                        "triclinic spatial hash matches brute force");
+
+    Frame neighbor_frame{0.0, {{0.0, 0.0, 0.0}, {0.55, 0.0, 0.0}}, std::nullopt};
+    NeighborList neighbor_list({0}, {1}, 0.5, 0.1);
+    check(!neighbor_list.has_contact(neighbor_frame) && neighbor_list.rebuild_count() == 1,
+          "neighbor list builds candidates at cutoff plus skin");
+    neighbor_frame.coordinates = {{0.03, 0.0, 0.0}, {0.52, 0.0, 0.0}};
+    check(neighbor_list.has_contact(neighbor_frame) && neighbor_list.rebuild_count() == 1,
+          "neighbor list reuses candidates below half-skin displacement");
+    neighbor_frame.coordinates[0][0] = 0.09;
+    check(neighbor_list.has_contact(neighbor_frame) && neighbor_list.rebuild_count() == 2,
+          "neighbor list rebuilds above half-skin displacement");
+    neighbor_frame.box_nm = Vec3{2.0, 2.0, 2.0};
+    check(neighbor_list.has_contact(neighbor_frame) && neighbor_list.rebuild_count() == 3,
+          "neighbor list rebuilds when the periodic cell changes");
+    check_throws([&] { (void)NeighborList({0}, {1}, 0.5, 0.0); },
+                 "neighbor list rejects a non-positive skin");
+    NeighborList self_neighbor_list({0}, {0}, 0.5);
+    check_throws([&] { (void)self_neighbor_list.has_contact(neighbor_frame); },
+                 "neighbor-list boolean contact requires a distinct pair");
     check_throws([&] { (void)has_contact(large_frame, {0}, {0}, 0.5); },
                  "boolean contact rejects selections without a distinct pair");
     check_throws([&] { (void)contacts(large_frame, large_a, large_b,
@@ -310,6 +332,127 @@ void test_geometry() {
     large_frame.coordinates[3][0] = std::numeric_limits<double>::quiet_NaN();
     check_throws([&] { (void)contacts(large_frame, {3}, {4}, 0.5); },
                  "contact search rejects non-finite selected coordinates");
+}
+
+void test_molecular_observables() {
+    Frame angle_frame{0.0, {{1.0, 0.0, 0.0}, {0.0, 0.0, 0.0},
+                            {0.0, 1.0, 0.0}, {0.0, 1.0, 1.0}}, std::nullopt};
+    check(close(angle_degrees(angle_frame, 0, 1, 2), 90.0), "bond angle in degrees");
+    check(close(std::abs(dihedral_degrees(angle_frame, 0, 1, 2, 3)), 90.0),
+          "signed dihedral magnitude");
+
+    Topology hbond_topology({
+        {0, "N", "SER", 1, 'A', "N"}, {1, "H", "SER", 1, 'A', "H"},
+        {2, "O", "ASP", 2, 'A', "O"},
+    }, {{0, 1}});
+    Frame hbond_frame{0.0, {{0.0, 0.0, 0.0}, {0.1, 0.0, 0.0},
+                            {0.3, 0.0, 0.0}}, std::nullopt};
+    check(hydrogen_bond(hbond_frame, {0}, {2}, hbond_topology),
+          "hydrogen bond donor-hydrogen-acceptor geometry");
+    hbond_frame.coordinates[2] = {0.1, 0.2, 0.0};
+    check(!hydrogen_bond(hbond_frame, {0}, {2}, hbond_topology),
+          "hydrogen bond rejects bent angle");
+    hbond_frame.coordinates[2] = {0.3, 0.0, 0.0};
+    auto hbond_reader = std::make_shared<VectorReader>(std::vector<Frame>{hbond_frame});
+    Trajectory hbond_trajectory(hbond_topology, hbond_reader);
+    check(Engine().query(hbond_trajectory, "FIND HBOND(name N, name O);").size() == 1,
+          "HBOND query execution");
+    check(Engine().query(hbond_trajectory,
+                         "FIND COORDINATION_NUMBER(name N, name H or name O, cutoff=0.3nm) == 2;").size() == 1,
+          "COORDINATION_NUMBER query execution");
+    check(Engine().query(hbond_trajectory,
+                         "FIND SALT_BRIDGE(name N, name O, cutoff=0.3nm);").size() == 1,
+          "SALT_BRIDGE query execution");
+    check(Engine().query(hbond_trajectory,
+                         "FIND SURFACE_DISTANCE(name N, name O) <= 0.3nm;").size() == 1,
+          "SURFACE_DISTANCE query execution");
+
+    Topology carbon_topology({{0, "C", "LIG", 1, 'A', "C"}});
+    Frame carbon_frame{0.0, {{0.0, 0.0, 0.0}}, std::nullopt};
+    check(close(solvent_accessible_surface_area(carbon_frame, {0}, carbon_topology, 0.14, 96),
+                4.0 * 3.14159265358979323846 * 0.31 * 0.31),
+          "single-atom Shrake-Rupley SASA");
+    auto carbon_reader = std::make_shared<VectorReader>(std::vector<Frame>{carbon_frame});
+    Trajectory carbon_trajectory(carbon_topology, carbon_reader);
+    check(Engine().query(carbon_trajectory,
+                         "FIND SASA(protein, probe=0.14nm, points=96) > 1nm2;").size() == 1,
+          "SASA query execution and area units");
+    Topology unsupported_sasa_topology({{0, "XE", "LIG", 1, 'A', "XE"}});
+    check_throws<QueryError>([&] {
+        (void)Planner().plan(Parser().parse("FIND SASA(protein) > 0nm2;"),
+                             unsupported_sasa_topology);
+    }, "SASA rejects unsupported elements during planning");
+
+    Frame rotated{0.0, {{2.0, 3.0, 0.0}, {2.0, 4.0, 0.0},
+                        {1.0, 3.0, 0.0}}, std::nullopt};
+    const std::vector<Vec3> reference{{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0},
+                                      {0.0, 1.0, 0.0}};
+    check(close(aligned_rmsd(rotated, {0, 1, 2}, reference), 0.0),
+          "Kabsch-aligned RMSD removes translation and rotation");
+    check(aligned_rmsd(rotated, {0, 1, 2}, reference, false) > 1.0,
+          "unaligned RMSD retains rigid-body displacement");
+    Topology rmsd_topology({
+        {0, "A", "LIG", 1, 'A', "C"}, {1, "B", "LIG", 1, 'A', "C"},
+        {2, "C", "LIG", 1, 'A', "C"},
+    });
+    auto rmsd_reader = std::make_shared<VectorReader>(std::vector<Frame>{
+        Frame{0.0, reference, std::nullopt}, Frame{1.0, rotated.coordinates, std::nullopt}});
+    Trajectory rmsd_trajectory(rmsd_topology, rmsd_reader);
+    const auto rmsd_events = Engine().query(rmsd_trajectory, "FIND RMSD(protein) <= 0.001nm;");
+    check(rmsd_events.size() == 1 && close(rmsd_events[0].end_time, 1.0),
+          "RMSD query uses aligned first-frame reference");
+    Topology dihedral_topology({
+        {0, "A", "LIG", 1, 'A', "C"}, {1, "B", "LIG", 1, 'A', "C"},
+        {2, "C", "LIG", 1, 'A', "C"}, {3, "D", "LIG", 1, 'A', "C"},
+    });
+    auto dihedral_reader = std::make_shared<VectorReader>(std::vector<Frame>{angle_frame});
+    Trajectory dihedral_trajectory(dihedral_topology, dihedral_reader);
+    check(Engine().query(dihedral_trajectory,
+                         "FIND DIHEDRAL(name A, name B, name C, name D) < -89deg;").size() == 1,
+          "DIHEDRAL query execution and angle units");
+
+    Frame coordination_frame{0.0, {{0.0, 0.0, 0.0}, {0.2, 0.0, 0.0},
+                                   {0.5, 0.0, 0.0}}, std::nullopt};
+    check(close(coordination_number(coordination_frame, {0}, {1, 2}, 0.3), 1.0),
+          "coordination number averages unique neighbors per center");
+
+    Frame rings{0.0, {{0.0, 0.0, 0.0}, {0.1, 0.0, 0.0}, {0.0, 0.1, 0.0},
+                      {0.0, 0.0, 0.4}, {0.1, 0.0, 0.4}, {0.0, 0.1, 0.4}},
+                std::nullopt};
+    check(aromatic_stacking(rings, {0, 1, 2}, {3, 4, 5}),
+          "parallel aromatic stacking geometry");
+    check(close(molecular_orientation(rings, {0, 1, 2}, {3, 4, 5}, 'z'), 0.0),
+          "molecular orientation relative to z axis");
+    Topology ring_topology({
+        {0, "R1", "PHE", 1, 'A', "C"}, {1, "R2", "PHE", 1, 'A', "C"},
+        {2, "R3", "PHE", 1, 'A', "C"}, {3, "S1", "TYR", 2, 'A', "C"},
+        {4, "S2", "TYR", 2, 'A', "C"}, {5, "S3", "TYR", 2, 'A', "C"},
+    });
+    auto ring_reader = std::make_shared<VectorReader>(std::vector<Frame>{rings});
+    Trajectory ring_trajectory(ring_topology, ring_reader);
+    check(Engine().query(ring_trajectory,
+                         "FIND AROMATIC_STACKING(resid 1, resid 2);").size() == 1,
+          "AROMATIC_STACKING query execution");
+    check(Engine().query(ring_trajectory,
+                         "FIND ORIENTATION(resid 1, resid 2, axis=z) <= 1deg;").size() == 1,
+          "ORIENTATION query execution and angle units");
+
+    const double root_three_over_two = std::sqrt(3.0) / 2.0;
+    Topology helix_topology({
+        {0, "C", "ALA", 1, 'A', "C"}, {1, "N", "ALA", 2, 'A', "N"},
+        {2, "CA", "ALA", 2, 'A', "C"}, {3, "C", "ALA", 2, 'A', "C"},
+        {4, "N", "ALA", 3, 'A', "N"},
+    });
+    Frame helix_frame{0.0, {{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0},
+                            {1.0, 1.0, 0.0}, {0.5, 1.0, -root_three_over_two},
+                            {1.11237244, 0.29289322, -1.21957879}}, std::nullopt};
+    check(close(helix_fraction(helix_frame, {0, 1, 2, 3, 4}, helix_topology), 1.0),
+          "Ramachandran helix fraction");
+    auto helix_reader = std::make_shared<VectorReader>(std::vector<Frame>{helix_frame});
+    Trajectory helix_trajectory(helix_topology, helix_reader);
+    check(Engine().query(helix_trajectory,
+                         "FIND HELIX(protein, minimum_fraction=1.0);").size() == 1,
+          "HELIX query execution");
 }
 
 void test_periodic_xyz_and_query() {
@@ -360,6 +503,24 @@ void test_events_and_temporal() {
     check(temporal::followed_by({a}, {touching}, 0.0).size() == 1, "FOLLOWED_BY zero gap");
     check(temporal::followed_by({a}, {late}, 1.0).empty(), "WITHIN rejects over boundary");
     check(temporal::followed_by({a}, {Event{3, 5, "B", {}, {}}}, 1.0).size() == 1, "WITHIN includes boundary");
+    check(temporal::during(Event{1, 2, "A", {}, {}}, Event{0, 3, "B", {}, {}}),
+          "DURING includes enclosing boundaries");
+    check(!temporal::precedes(a, touching) && temporal::precedes(a, late),
+          "PRECEDES is strict unlike BEFORE");
+    check(temporal::immediately_followed_by(a, touching) &&
+              !temporal::immediately_followed_by(a, late),
+          "IMMEDIATELY_FOLLOWED_BY requires touching endpoints");
+    check(temporal::join_until({a}, {late, touching}).size() == 1 &&
+              close(temporal::join_until({a}, {late, touching})[0].end_time, 4.0),
+          "UNTIL chooses earliest terminating event");
+    const std::vector<Event> recurring{
+        {0, 1, "A", {"resid 1"}, {}}, {3, 4, "A", {"resid 1"}, {}},
+        {7, 8, "A", {"resid 1"}, {}}, {12, 13, "A", {"resid 1"}, {}},
+    };
+    check(temporal::repeats(recurring, 3).size() == 2,
+          "REPEATS emits sliding event windows");
+    check(temporal::repeats(recurring, 3, 8.0).size() == 1,
+          "REPEATS WITHIN uses inclusive window span");
 }
 
 void test_parser_planner_engine() {
@@ -370,6 +531,24 @@ void test_parser_planner_engine() {
     check(duration.root->kind == ast::Kind::For, "parse FOR");
     auto temporal_query = parser.parse("FIND CONTACT(resid 17, resid 42) FOLLOWED_BY CONTACT(resid 17, resid 53) WITHIN 3ns;");
     check(temporal_query.root->kind == ast::Kind::FollowedBy, "parse FOLLOWED_BY");
+    check(parser.parse("FIND CONTACT(resid 17, resid 42) DURING CONTACT(resid 17, resid 53);").root->kind == ast::Kind::During,
+          "parse DURING");
+    check(parser.parse("FIND CONTACT(resid 17, resid 42) UNTIL CONTACT(resid 17, resid 53);").root->kind == ast::Kind::Until,
+          "parse UNTIL");
+    check(parser.parse("FIND CONTACT(resid 17, resid 42) PRECEDES CONTACT(resid 17, resid 53);").root->kind == ast::Kind::Precedes,
+          "parse PRECEDES");
+    check(parser.parse("FIND CONTACT(resid 17, resid 42) IMMEDIATELY_FOLLOWED_BY CONTACT(resid 17, resid 53);").root->kind == ast::Kind::ImmediatelyFollowedBy,
+          "parse IMMEDIATELY_FOLLOWED_BY");
+    const auto repeats_query = parser.parse(
+        "FIND CONTACT(resid 17, resid 42) REPEATS >= 2 WITHIN 10ns;");
+    check(repeats_query.root->kind == ast::Kind::Repeats &&
+              static_cast<const ast::RepeatsExpr&>(*repeats_query.root).count == 2,
+          "parse REPEATS window");
+    check(parser.parse(
+              "FIND CONTACT(resid 1, resid 2) FOLLOWED_BY CONTACT(resid 2, resid 3) "
+              "WITHIN 1ps FOLLOWED_BY CONTACT(resid 3, resid 4) WITHIN 1ps;")
+              .root->kind == ast::Kind::FollowedBy,
+          "parse left-associative temporal operator chain");
     auto nested = parser.parse("FIND (CONTACT(resid 17, resid 42) FOLLOWED_BY CONTACT(resid 17, resid 53) WITHIN 3ns) BEFORE CONTACT(resid 17, resid 42);");
     check(nested.root->kind == ast::Kind::Before, "parse nested temporal expression");
     const auto cutoff_query = parser.parse("FIND CONTACT(resid 17, resid 42, cutoff=0.35nm);");
@@ -399,6 +578,9 @@ void test_parser_planner_engine() {
     check_throws<QueryError>([&] {
         (void)parser.parse("FIND RG(protein, mass_weighted=yes) < 1nm;");
     }, "invalid RG mass weighting option");
+    check_throws<QueryError>([&] {
+        (void)parser.parse("FIND CONTACT(resid 17, resid 42) REPEATS >= 1.5;");
+    }, "REPEATS rejects fractional count");
 
     const std::string root = ENSEMBLEQL_SOURCE_DIR;
     auto trajectory = Trajectory::from_files(root + "/examples/idr_contact_switching/switching.xyz",
@@ -419,6 +601,14 @@ void test_parser_planner_engine() {
     }
     const auto persistent = Engine().query(trajectory, "FIND CONTACT(resid 17, resid 42) FOR >= 2ns;");
     check(persistent.size() == 1 && close(persistent[0].duration(), 2000.0), "streaming query with FOR");
+    const auto during_events = Engine().query(
+        trajectory,
+        "FIND CONTACT(resid 17, resid 42) DURING (CONTACT(resid 17, resid 42) OR CONTACT(resid 17, resid 53));");
+    check(during_events.size() == 1, "DURING query execution");
+    const auto repeated_events = Engine().query(
+        trajectory, "FIND CONTACT(resid 17, resid 42) REPEATS >= 1 WITHIN 3ns;");
+    check(repeated_events.size() == 1 && repeated_events[0].type == "REPEATS",
+          "REPEATS query execution");
     const auto count_events = Engine().query(trajectory, "FIND CONTACT_COUNT(resid 17, resid 42) >= 1;");
     check(count_events.size() == 1 && close(count_events[0].end_time, 2000.0), "CONTACT_COUNT comparison execution");
     const auto tighter = Engine().query(trajectory, "FIND CONTACT(resid 17, resid 42, cutoff=0.35nm);");
@@ -524,6 +714,7 @@ int main() {
     test_units();
     test_io_and_selections();
     test_geometry();
+    test_molecular_observables();
     test_periodic_xyz_and_query();
     test_events_and_temporal();
     test_parser_planner_engine();

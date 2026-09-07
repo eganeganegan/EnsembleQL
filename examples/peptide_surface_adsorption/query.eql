@@ -1,0 +1,17 @@
+FIND
+    (
+        SURFACE_DISTANCE(chain A, resname SUR) < 0.8nm
+        AND SURFACE_DISTANCE(chain A, resname SUR) > 0.4nm
+    )
+FOLLOWED_BY
+    (
+        SURFACE_DISTANCE(chain A, resname SUR) < 0.4nm
+        AND ORIENTATION(resid 1, resid 2, axis=z) > 60deg
+    )
+WITHIN 1ps
+FOLLOWED_BY
+    (
+        SURFACE_DISTANCE(chain A, resname SUR) < 0.4nm
+        AND ORIENTATION(resid 1, resid 2, axis=z) < 30deg
+    ) FOR >= 1ps
+WITHIN 1ps;
