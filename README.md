@@ -7,7 +7,8 @@
 [![Wheel](https://img.shields.io/pypi/wheel/ensembleql.svg)](https://pypi.org/project/ensembleql/#files)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C.svg?logo=cplusplus)](https://isocpp.org/)
 [![License: MIT](https://img.shields.io/github/license/eganeganegan/EnsembleQL.svg)](https://github.com/eganeganegan/EnsembleQL/blob/main/LICENSE)
-[![DOI: pending](https://img.shields.io/badge/DOI-pending-lightgrey.svg?logo=zenodo)](https://zenodo.org/)
+[![DOI](https://zenodo.org/badge/1360295972.svg)](https://doi.org/10.5281/zenodo.22663424)
+
 
 EnsembleQL is an open-source, declarative temporal query engine for molecular-dynamics trajectories. It lets computational biologists and chemists ask when molecular behavior occurs and how events relate in time, instead of rebuilding each analysis as a bespoke array-processing script.
 
