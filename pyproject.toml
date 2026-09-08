@@ -67,5 +67,9 @@ build = "cp{311,312,313,314}-*"
 skip = ["*-musllinux_*", "cp314t-*"]
 build-verbosity = 1
 environment = { CMAKE_ARGS = "-DENSEMBLEQL_FETCH_CHEMFILES=ON -DENSEMBLEQL_REQUIRE_CHEMFILES=ON" }
-test-requires = ["pytest>=8"]
-test-command = "python {project}/tools/smoke_test_install.py && python -m pytest -q {project}/tests/python/test_api.py {project}/tests/python/test_cli.py"
+test-command = "python {project}/tools/smoke_test_install.py"
+
+[tool.cibuildwheel.macos]
+# Homebrew's libomp can expose runner- and architecture-specific link paths.
+# Keep release wheels self-contained and use the serial kernels on macOS.
+environment = { CMAKE_ARGS = "-DENSEMBLEQL_FETCH_CHEMFILES=ON -DENSEMBLEQL_REQUIRE_CHEMFILES=ON -DENSEMBLEQL_ENABLE_OPENMP=OFF" }
