@@ -5,7 +5,6 @@
 #include <array>
 #include <cctype>
 #include <cmath>
-#include <filesystem>
 #include <optional>
 #include <regex>
 #include <sstream>
@@ -47,11 +46,21 @@ std::string lowercase(std::string value) {
 }
 
 PathExtension path_extension(const std::string& path) {
-    std::filesystem::path parsed(path);
-    std::string extension = lowercase(parsed.extension().string());
+    // Avoid std::filesystem here: libc++ only exposes it from macOS 10.15,
+    // while CPython 3.11 x86_64 wheels retain a macOS 10.9 deployment target.
+    const auto extension_at = [&path](const std::size_t end) {
+        const auto separator = path.find_last_of("/\\", end == 0 ? 0 : end - 1);
+        const auto filename_start = separator == std::string::npos ? 0 : separator + 1;
+        const auto dot = path.find_last_of('.', end == 0 ? 0 : end - 1);
+        if (dot == std::string::npos || dot < filename_start || dot == filename_start) {
+            return std::string{};
+        }
+        return path.substr(dot, end - dot);
+    };
+
+    std::string extension = lowercase(extension_at(path.size()));
     if (extension == ".gz" || extension == ".bz2" || extension == ".xz") {
-        parsed = parsed.stem();
-        return {lowercase(parsed.extension().string()), extension};
+        return {lowercase(extension_at(path.size() - extension.size())), extension};
     }
     return {std::move(extension), {}};
 }
